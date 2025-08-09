@@ -1,4 +1,5 @@
 const db = require('../../config/database');
+const xlsx = require('xlsx');
 
 const CREATED_BY = '00000000-0000-0000-0000-000000000000';
 
@@ -7,7 +8,17 @@ const itemController = {
   async getAll(req, res) {
     try {
       const result = await db.query(
-        'SELECT * FROM ims.t_item WHERE is_active = true AND is_deleted = false ORDER BY created_at DESC'
+        `SELECT 
+          i.*, 
+          b.brand_name, 
+          c.category_name, 
+          u.uom_name
+        FROM ims.t_item i
+        LEFT JOIN ims.t_brand b ON i.brand_id = b.id
+        LEFT JOIN ims.t_category c ON i.category_id = c.id
+        LEFT JOIN ims.t_uom u ON i.uom_id = u.id
+        WHERE i.is_active = true AND i.is_deleted = false
+        ORDER BY i.created_at DESC`
       );
       
       return res.status(200).json({
@@ -293,6 +304,275 @@ const itemController = {
       });
     } finally {
       client.release();
+    }
+  },
+
+  // Process uploaded Excel and bulk insert items
+  async processExcelAndBulkInsert(req, res) {
+    const client = await db.getClient();
+    try {
+      // Check if a file is uploaded
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          statusCode: 400,
+          data: null,
+          clientMessage: 'No file uploaded',
+          devMessage: 'Excel file is required for processing'
+        });
+      }
+
+      // Read the uploaded Excel file
+      const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0]; // Assuming data is in the first sheet
+      const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
+
+      if (sheetData.length <= 1) {
+        return res.status(400).json({
+          success: false,
+          statusCode: 400,
+          data: null,
+          clientMessage: 'Excel file is empty or has no data rows',
+          devMessage: 'No data found in the uploaded Excel file'
+        });
+      }
+
+      const headers = sheetData[0].map(header => header.trim().toLowerCase());
+      console.log('Headers:', headers); // Debugging line to check headers
+      const rows = sheetData.slice(1);
+
+      const fieldMappings = {
+        'item name': 'item_name',
+        'hsn code': 'hsn_code',
+        'description': 'description',
+        'safety stock': 'safety_stock',
+        'reorder quantity': 'reorder_quantity',
+        'latest lowest basic supply rate': 'latest_lowest_basic_supply_rate',
+        'latest lowest basic installation rate': 'latest_lowest_basic_installation_rate',
+        'latest lowest net rate': 'latest_lowest_net_rate',
+        'dimensions': 'dimensions',
+        'parent item id': 'parent_item_id',
+        'material type': 'material_type',
+        'category id': 'category_id',
+        'brand id': 'brand_id',
+        'uom id': 'uom_id',
+        'installation rate': 'installation_rate',
+        'is capital item': 'is_capital_item',
+        'is scrap item': 'is_scrap_item',
+        'insurance number': 'insurance_number',
+        'insurance provider': 'insurance_provider',
+        'insurance type': 'insurance_type',
+        'insurance renewal frequency': 'insurance_renewal_frequency',
+        'insurance start date': 'insurance_start_date',
+        'insurance end date': 'insurance_end_date',
+        'insurance premium amount': 'insurance_premium_amount',
+        'insurance claim amount': 'insurance_claim_amount',
+        'insurance status': 'insurance_status'
+      };
+
+      const columnIndexes = {};
+      for (const [humanReadable, dbField] of Object.entries(fieldMappings)) {
+        const index = headers.indexOf(humanReadable);
+        if (index !== -1) {
+          columnIndexes[dbField] = index;
+        }
+      }
+
+      await client.query('BEGIN');
+      const insertedItems = [];
+
+      let currentTimestamp = new Date(); // Start with the current timestamp
+
+      for (const row of rows) {
+        const itemData = {};
+        for (const [dbField, index] of Object.entries(columnIndexes)) {
+          itemData[dbField] = row[index] !== undefined && row[index] !== null ? String(row[index]).trim() : null;
+        }
+
+        if (!itemData.item_name) {
+          throw new Error('Item Name is required in each row');
+        }
+
+        console.log('Item Data:', itemData); // Debugging line to check item data
+
+        const created_at = currentTimestamp.toISOString().replace('T', ' ').replace('Z', ' +0000');
+        currentTimestamp = new Date(currentTimestamp.getTime() + 10); // Increment by 1 millisecond
+
+        const result = await client.query(
+          `INSERT INTO ims.t_item (
+            ${Object.keys(itemData).join(', ')}, created_by, created_at
+          ) VALUES (
+            ${Object.keys(itemData).map((_, i) => `$${i + 1}`).join(', ')}, $${Object.keys(itemData).length + 1}, $${Object.keys(itemData).length + 2}
+          ) RETURNING *`,
+          [...Object.values(itemData), CREATED_BY, created_at]
+        );
+        insertedItems.push(result.rows[0]);
+      }
+
+      await client.query('COMMIT');
+
+      return res.status(201).json({
+        success: true,
+        statusCode: 201,
+        data: insertedItems,
+        clientMessage: 'Excel data processed and inserted successfully',
+        devMessage: `${insertedItems.length} items inserted successfully`
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      return res.status(500).json({
+        success: false,
+        statusCode: 500,
+        data: null,
+        clientMessage: 'Something went wrong, please try again later',
+        devMessage: error.message
+      });
+    } finally {
+      client.release();
+    }
+  },
+
+  // Export all items to Excel
+  async exportToExcel(req, res) {
+    try {
+      // Fetch all item data
+      const result = await db.query(
+        `SELECT 
+          id AS item_id, 
+          item_code, 
+          item_name, 
+          hsn_code, 
+          description, 
+          safety_stock, 
+          reorder_quantity, 
+          latest_lowest_basic_supply_rate, 
+          latest_lowest_basic_installation_rate, 
+          latest_lowest_net_rate, 
+          dimensions, 
+          parent_item_id, 
+          material_type, 
+          category_id, 
+          brand_id, 
+          uom_id, 
+          installation_rate, 
+          is_capital_item, 
+          is_scrap_item, 
+          insurance_number, 
+          insurance_provider, 
+          insurance_type, 
+          insurance_renewal_frequency, 
+          insurance_start_date, 
+          insurance_end_date, 
+          insurance_premium_amount, 
+          insurance_claim_amount, 
+          insurance_status, 
+          is_active, 
+          is_deleted
+        FROM ims.t_item 
+        ORDER BY created_at DESC`
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          statusCode: 404,
+          data: null,
+          clientMessage: 'No item data found',
+          devMessage: 'No data available in the item table'
+        });
+      }
+
+      // Prepare Excel data
+      const headers = [
+        'Item ID',
+        'Item Code',
+        'Item Name',
+        'HSN Code',
+        'Description',
+        'Safety Stock',
+        'Reorder Quantity',
+        'Latest Lowest Basic Supply Rate',
+        'Latest Lowest Basic Installation Rate',
+        'Latest Lowest Net Rate',
+        'Dimensions',
+        'Parent Item ID',
+        'Material Type',
+        'Category ID',
+        'Brand ID',
+        'UOM ID',
+        'Installation Rate',
+        'Is Capital Item',
+        'Is Scrap Item',
+        'Insurance Number',
+        'Insurance Provider',
+        'Insurance Type',
+        'Insurance Renewal Frequency',
+        'Insurance Start Date',
+        'Insurance End Date',
+        'Insurance Premium Amount',
+        'Insurance Claim Amount',
+        'Insurance Status',
+        'Is Active',
+        'Is Deleted'
+      ];
+
+      const rows = result.rows.map(row => [
+        row.item_id,
+        row.item_code,
+        row.item_name,
+        row.hsn_code,
+        row.description,
+        row.safety_stock,
+        row.reorder_quantity,
+        row.latest_lowest_basic_supply_rate,
+        row.latest_lowest_basic_installation_rate,
+        row.latest_lowest_net_rate,
+        row.dimensions,
+        row.parent_item_id,
+        row.material_type,
+        row.category_id,
+        row.brand_id,
+        row.uom_id,
+        row.installation_rate,
+        row.is_capital_item ? 'Yes' : 'No',
+        row.is_scrap_item ? 'Yes' : 'No',
+        row.insurance_number,
+        row.insurance_provider,
+        row.insurance_type,
+        row.insurance_renewal_frequency,
+        row.insurance_start_date,
+        row.insurance_end_date,
+        row.insurance_premium_amount,
+        row.insurance_claim_amount,
+        row.insurance_status,
+        row.is_active ? 'Yes' : 'No',
+        row.is_deleted ? 'Yes' : 'No'
+      ]);
+
+      // Create a new workbook and worksheet
+      const workbook = xlsx.utils.book_new();
+      const worksheet = xlsx.utils.aoa_to_sheet([headers, ...rows]);
+
+      // Append the worksheet to the workbook
+      xlsx.utils.book_append_sheet(workbook, worksheet, 'Items');
+
+      // Write the workbook to a buffer
+      const excelBuffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+      // Set response headers for file download
+      res.setHeader('Content-Disposition', 'attachment; filename="items.xlsx"');
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+      // Send the Excel file as a response
+      return res.status(200).send(excelBuffer);
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        statusCode: 500,
+        data: null,
+        clientMessage: 'Something went wrong, please try again later',
+        devMessage: error.message
+      });
     }
   }
 };

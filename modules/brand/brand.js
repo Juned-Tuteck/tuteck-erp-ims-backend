@@ -1,4 +1,5 @@
 const db = require('../../config/database');
+const xlsx = require('xlsx');
 
 const CREATED_BY = '00000000-0000-0000-0000-000000000000';
 
@@ -68,12 +69,16 @@ const brandController = {
   // Create brand
   async create(req, res) {
     try {
-      const { brand_code, brand_name, description, logo_url } = req.body;
-      
+
+      const { brand_name, description, logo_url } = req.body;
+      // Make description and logo_url optional
+      const desc = description !== undefined ? description : null;
+      const logo = logo_url !== undefined ? logo_url : null;
+
       const result = await db.query(
-        `INSERT INTO ims.t_brand (brand_code, brand_name, description, logo_url, created_by) 
-         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-        [brand_code, brand_name, description, logo_url, CREATED_BY]
+        `INSERT INTO ims.t_brand (brand_name, description, logo_url, created_by) 
+         VALUES ($1, $2, $3, $4) RETURNING *`,
+        [brand_name, desc, logo, CREATED_BY]
       );
 
       return res.status(201).json({
@@ -207,11 +212,14 @@ const brandController = {
       const insertedBrands = [];
 
       for (const brand of brands) {
-        const { brand_code, brand_name, description, logo_url } = brand;
+        const { brand_name, description, logo_url } = brand;
+        // Make description and logo_url optional
+        const desc = description !== undefined ? description : null;
+        const logo = logo_url !== undefined ? logo_url : null;
         const result = await client.query(
-          `INSERT INTO ims.t_brand (brand_code, brand_name, description, logo_url, created_by) 
-           VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-          [brand_code, brand_name, description, logo_url, CREATED_BY]
+          `INSERT INTO ims.t_brand (brand_name, description, logo_url, created_by) 
+           VALUES ($1, $2, $3, $4) RETURNING *`,
+          [brand_name, desc, logo, CREATED_BY]
         );
         insertedBrands.push(result.rows[0]);
       }
@@ -236,6 +244,187 @@ const brandController = {
       });
     } finally {
       client.release();
+    }
+  },
+
+  // Process uploaded Excel and bulk insert brands
+  async processExcelAndBulkInsert(req, res) {
+    const client = await db.getClient();
+    console.log("inside...")
+    try {
+      // Check if a file is uploaded
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          statusCode: 400,
+          data: null,
+          clientMessage: 'No file uploaded',
+          devMessage: 'Excel file is required for processing'
+        });
+      }
+
+      // Read the uploaded Excel file
+      const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0]; // Assuming data is in the first sheet
+      console.log('Processing sheet:', sheetName);
+      const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
+      console.log('Excel Data:', sheetData);
+
+      if (sheetData.length <= 1) {
+        return res.status(400).json({
+          success: false,
+          statusCode: 400,
+          data: null,
+          clientMessage: 'Excel file is empty or has no data rows',
+          devMessage: 'No data found in the uploaded Excel file'
+        });
+      }
+
+      const headers = sheetData[0].map(header => header.trim().toLowerCase());
+      console.log('Excel Headers:', headers);
+      const rows = sheetData.slice(1);
+
+      const brandNameIndex = headers.indexOf('Brand Name'.toLowerCase());
+      const descriptionIndex = headers.indexOf('Description'.toLowerCase());
+
+      if (brandNameIndex === -1) {
+        return res.status(400).json({
+          success: false,
+          statusCode: 400,
+          data: null,
+          clientMessage: 'Brand Name column is missing',
+          devMessage: 'Brand Name column not found in the uploaded Excel file'
+        });
+      }
+
+      await client.query('BEGIN');
+      const insertedBrands = [];
+
+      let currentTimestamp = new Date(); // Start with the current timestamp
+
+      for (const row of rows) {
+        const brand_name = row[brandNameIndex]?.trim();
+        const description = row[descriptionIndex]?.trim();
+        console.log("row inside loop:", row);
+
+        if (!brand_name) {
+          throw new Error('Brand Name is required in each row');
+        }
+
+        const desc = description !== undefined ? description : null;
+        const created_at = currentTimestamp.toISOString().replace('T', ' ').replace('Z', ' +0000');
+        currentTimestamp = new Date(currentTimestamp.getTime() + 10); // Increment by 1 millisecond
+        console.log("current timestamp:", currentTimestamp);
+        const result = await client.query(
+          `INSERT INTO ims.t_brand (brand_name, description, created_by, created_at) 
+           VALUES ($1, $2, $3, $4) RETURNING *`,
+          [brand_name, desc, CREATED_BY, created_at]
+        );
+        insertedBrands.push(result.rows[0]);
+        console.log(`Inserted brand: ${JSON.stringify(result.rows[0])}`);
+      }
+
+      console.log(`Total brands inserted: ${insertedBrands}`);
+
+      await client.query('COMMIT');
+
+      return res.status(201).json({
+        success: true,
+        statusCode: 201,
+        data: insertedBrands,
+        clientMessage: 'Excel data processed and inserted successfully',
+        devMessage: `${insertedBrands.length} brands inserted successfully`
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      return res.status(500).json({
+        success: false,
+        statusCode: 500,
+        data: null,
+        clientMessage: 'Something went wrong, please try again later',
+        devMessage: error.message
+      });
+    } finally {
+      client.release();
+    }
+  },
+
+  // Export all brands to Excel
+  async exportToExcel(req, res) {
+    try {
+      // Fetch all brand data
+      const result = await db.query(
+        'SELECT id, brand_code, brand_name, description, is_active, is_deleted FROM ims.t_brand ORDER BY created_at DESC'
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          statusCode: 404,
+          data: null,
+          clientMessage: 'No brand data found',
+          devMessage: 'No data available in the brand table'
+        });
+      }
+
+      // Prepare Excel data
+      const headers = [
+        'ID',
+        'Brand Code',
+        'Brand Name',
+        'Description',
+        'Is Active',
+        'Is Deleted'
+      ];
+
+      const rows = result.rows.map(row => [
+        row.id,
+        row.brand_code,
+        row.brand_name,
+        row.description,
+        row.is_active ? 'Yes' : 'No',
+        row.is_deleted ? 'Yes' : 'No'
+      ]);
+
+      // Apply styling to headers
+      const headerStyle = {
+        font: { bold: true, color: { rgb: 'FFFFFF' } },
+        fill: { fgColor: { rgb: '4F81BD' } },
+        alignment: { horizontal: 'center' }
+      };
+
+      // Create a new workbook and worksheet
+      const workbook = xlsx.utils.book_new();
+      const worksheet = xlsx.utils.aoa_to_sheet([headers, ...rows]);
+
+      // Apply styles to header row
+      const range = xlsx.utils.decode_range(worksheet['!ref']);
+      for (let col = range.s.c; col <= range.e.c; col++) {
+        const cellAddress = xlsx.utils.encode_cell({ r: 0, c: col });
+        if (!worksheet[cellAddress]) continue;
+        worksheet[cellAddress].s = headerStyle;
+      }
+
+      // Append the worksheet to the workbook
+      xlsx.utils.book_append_sheet(workbook, worksheet, 'Brands');
+
+      // Write the workbook to a buffer
+      const excelBuffer = xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+      // Set response headers for file download
+      res.setHeader('Content-Disposition', 'attachment; filename="brands.xlsx"');
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+      // Send the Excel file as a response
+      return res.status(200).send(excelBuffer);
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        statusCode: 500,
+        data: null,
+        clientMessage: 'Something went wrong, please try again later',
+        devMessage: error.message
+      });
     }
   }
 };
