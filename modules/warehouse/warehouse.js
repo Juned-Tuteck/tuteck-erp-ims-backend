@@ -457,6 +457,31 @@ const warehouseController = {
       });
     }
   },
+
+  // Get all projects with project_species = 'project warehouse'
+  async getAllProjects(req, res) {
+    try {
+      const result = await db.query(
+        "SELECT * FROM pms.t_project WHERE project_species = 'project warehouse'"
+      );
+
+      return res.status(200).json({
+        success: true,
+        statusCode: 200,
+        data: result.rows,
+        clientMessage: "Projects fetched successfully",
+        devMessage: "Projects retrieved successfully",
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        statusCode: 500,
+        data: [],
+        clientMessage: "Something went wrong, please try again later",
+        devMessage: error.message,
+      });
+    }
+  },
 };
 
 module.exports = warehouseController;
