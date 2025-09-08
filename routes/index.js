@@ -11,6 +11,8 @@ const warehouseController = require("../modules/warehouse/warehouse");
 const itemController = require("../modules/item/item");
 const allocationController = require("../modules/allocation/allocation"); // Import allocation controller
 const allocationDetailsController = require("../modules/allocation/allocation_details"); // Import allocation details controller
+const materialIssueController = require("../modules/material_issues/material_issues");
+const materialIssueItemsController = require("../modules/material_issues/material_issues_items");
 
 // Brand routes
 router.get("/api/brand", brandController.getAll);
@@ -90,6 +92,10 @@ router.post("/api/allocation", allocationController.create);
 router.put("/api/allocation/:id", allocationController.update);
 router.delete("/api/allocation/:id", allocationController.delete);
 router.put("/api/allocation/add/bulk", allocationController.bulkInsertOrUpdate);
+router.get(
+  "/api/allocation/get/by-bom/:BOM_Id",
+  allocationController.getByBOMId
+);
 
 // Allocation Details routes
 router.get("/api/allocation-details", allocationDetailsController.getAll);
@@ -103,6 +109,37 @@ router.delete(
 router.put(
   "/api/allocation-details/add/bulk",
   allocationDetailsController.bulkInsert
+);
+
+// Material Issues routes
+router.get("/api/material-issues", materialIssueController.getAll);
+router.get("/api/material-issues/:id", materialIssueController.getById);
+router.post("/api/material-issues", materialIssueController.create);
+router.put("/api/material-issues/:id", materialIssueController.update);
+router.delete("/api/material-issues/:id", materialIssueController.delete);
+router.put(
+  "/api/material-issues/add/bulk",
+  materialIssueController.bulkInsertOrUpdate
+);
+
+// Material Issue Items routes
+router.get("/api/material-issue-items", materialIssueItemsController.getAll);
+router.get(
+  "/api/material-issue-items/:id",
+  materialIssueItemsController.getById
+);
+router.post("/api/material-issue-items", materialIssueItemsController.create);
+router.put(
+  "/api/material-issue-items/:id",
+  materialIssueItemsController.update
+);
+router.delete(
+  "/api/material-issue-items/:id",
+  materialIssueItemsController.delete
+);
+router.put(
+  "/api/material-issue-items/add/bulk",
+  materialIssueItemsController.bulkInsertOrUpdate
 );
 
 module.exports = router;
