@@ -9,6 +9,17 @@ const categoryController = require("../modules/category/category");
 const uomController = require("../modules/uom/uom");
 const warehouseController = require("../modules/warehouse/warehouse");
 const itemController = require("../modules/item/item");
+
+const tInventoryController = require("../modules/inventory/t_inventory");
+const tDeliveryChallanRouter = require("../modules/delivery_challan/t_delivery_challan");
+const tMaterialIssuesRouter = require("../modules/material_issuance/t_material_issues");
+// Source APIs
+const tSourceRouter = require("../modules/sources/t_sources");
+// Source Detail APIs
+const tSourceDetailRouter = require("../modules/sources_details/t_sources_details");
+// Source Item Warehouse Details APIs
+const tSourceItemWarehouseRouter = require("../modules/source_item_warehouse/t_source_item_warehouse_details");
+
 const allocationController = require("../modules/allocation/allocation"); // Import allocation controller
 const allocationDetailsController = require("../modules/allocation/allocation_details"); // Import allocation details controller
 const materialIssueController = require("../modules/material_issues/material_issues");
@@ -69,6 +80,7 @@ router.post(
   warehouseController.processExcelAndBulkInsert
 ); // Add multer middleware here
 router.get("/api/warehouse/export/excel", warehouseController.exportToExcel); // Route to export warehouse data to Excel
+
 router.get("/api/projects", warehouseController.getAllProjects);
 
 // Item routes
@@ -84,6 +96,15 @@ router.post(
   itemController.processExcelAndBulkInsert
 ); // Add multer middleware here
 router.get("/api/item/export/excel", itemController.exportToExcel); // Route to export item data to Excel
+
+// Register new routers
+
+router.use("/api/source", tSourceRouter);
+router.use("/api/source-detail", tSourceDetailRouter);
+router.use("/api/source-item-warehouse-details", tSourceItemWarehouseRouter);
+router.use("/api/inventory", tInventoryController);
+router.use("/api/delivery-challan", tDeliveryChallanRouter);
+router.use("/api/material_issues", tMaterialIssuesRouter);
 
 // Allocation routes
 router.get("/api/allocation", allocationController.getAll);
