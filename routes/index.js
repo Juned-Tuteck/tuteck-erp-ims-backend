@@ -9,6 +9,7 @@ const categoryController = require("../modules/category/category");
 const uomController = require("../modules/uom/uom");
 const warehouseController = require("../modules/warehouse/warehouse");
 const itemController = require("../modules/item/item");
+
 const tInventoryController = require("../modules/inventory/t_inventory");
 const tDeliveryChallanRouter = require("../modules/delivery_challan/t_delivery_challan");
 const tMaterialIssuesRouter = require("../modules/material_issuance/t_material_issues");
@@ -18,6 +19,11 @@ const tSourceRouter = require("../modules/sources/t_sources");
 const tSourceDetailRouter = require("../modules/sources_details/t_sources_details");
 // Source Item Warehouse Details APIs
 const tSourceItemWarehouseRouter = require("../modules/source_item_warehouse/t_source_item_warehouse_details");
+
+const allocationController = require("../modules/allocation/allocation"); // Import allocation controller
+const allocationDetailsController = require("../modules/allocation/allocation_details"); // Import allocation details controller
+const materialIssueController = require("../modules/material_issues/material_issues");
+const materialIssueItemsController = require("../modules/material_issues/material_issues_items");
 
 // Brand routes
 router.get("/api/brand", brandController.getAll);
@@ -75,6 +81,8 @@ router.post(
 ); // Add multer middleware here
 router.get("/api/warehouse/export/excel", warehouseController.exportToExcel); // Route to export warehouse data to Excel
 
+router.get("/api/projects", warehouseController.getAllProjects);
+
 // Item routes
 router.get("/api/item", itemController.getAll);
 router.get("/api/item/:id", itemController.getById);
@@ -97,5 +105,62 @@ router.use("/api/source-item-warehouse-details", tSourceItemWarehouseRouter);
 router.use("/api/inventory", tInventoryController);
 router.use("/api/delivery-challan", tDeliveryChallanRouter);
 router.use("/api/material-issues", tMaterialIssuesRouter);
+
+// Allocation routes
+router.get("/api/allocation", allocationController.getAll);
+router.get("/api/allocation/:id", allocationController.getById);
+router.post("/api/allocation", allocationController.create);
+router.put("/api/allocation/:id", allocationController.update);
+router.delete("/api/allocation/:id", allocationController.delete);
+router.put("/api/allocation/add/bulk", allocationController.bulkInsertOrUpdate);
+router.get(
+  "/api/allocation/get/by-bom/:BOM_Id",
+  allocationController.getByBOMId
+);
+
+// Allocation Details routes
+router.get("/api/allocation-details", allocationDetailsController.getAll);
+router.get("/api/allocation-details/:id", allocationDetailsController.getById);
+router.post("/api/allocation-details", allocationDetailsController.create);
+router.put("/api/allocation-details/:id", allocationDetailsController.update);
+router.delete(
+  "/api/allocation-details/:id",
+  allocationDetailsController.delete
+);
+router.put(
+  "/api/allocation-details/add/bulk",
+  allocationDetailsController.bulkInsert
+);
+
+// Material Issues routes
+router.get("/api/material-issues", materialIssueController.getAll);
+router.get("/api/material-issues/:id", materialIssueController.getById);
+router.post("/api/material-issues", materialIssueController.create);
+router.put("/api/material-issues/:id", materialIssueController.update);
+router.delete("/api/material-issues/:id", materialIssueController.delete);
+router.put(
+  "/api/material-issues/add/bulk",
+  materialIssueController.bulkInsertOrUpdate
+);
+
+// Material Issue Items routes
+router.get("/api/material-issue-items", materialIssueItemsController.getAll);
+router.get(
+  "/api/material-issue-items/:id",
+  materialIssueItemsController.getById
+);
+router.post("/api/material-issue-items", materialIssueItemsController.create);
+router.put(
+  "/api/material-issue-items/:id",
+  materialIssueItemsController.update
+);
+router.delete(
+  "/api/material-issue-items/:id",
+  materialIssueItemsController.delete
+);
+router.put(
+  "/api/material-issue-items/add/bulk",
+  materialIssueItemsController.bulkInsertOrUpdate
+);
 
 module.exports = router;
