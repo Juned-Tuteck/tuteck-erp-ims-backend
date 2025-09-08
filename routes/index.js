@@ -104,7 +104,7 @@ router.use("/api/source-detail", tSourceDetailRouter);
 router.use("/api/source-item-warehouse-details", tSourceItemWarehouseRouter);
 router.use("/api/inventory", tInventoryController);
 router.use("/api/delivery-challan", tDeliveryChallanRouter);
-router.use("/api/material-issues", tMaterialIssuesRouter);
+router.use("/api/material_issues", tMaterialIssuesRouter);
 
 // Allocation routes
 router.get("/api/allocation", allocationController.getAll);

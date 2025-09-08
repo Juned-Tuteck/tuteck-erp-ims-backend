@@ -3,16 +3,16 @@ const express = require("express");
 const router = express.Router();
 
 // Get all material issues
-router.get("/", async (req, res) => {
-  try {
-    const result = await db.query(
-      "SELECT * FROM ims.t_material_issues WHERE is_deleted = false"
-    );
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// router.get("/", async (req, res) => {
+//   try {
+//     const result = await db.query(
+//       "SELECT * FROM ims.t_material_issues WHERE is_deleted = false"
+//     );
+//     res.json(result.rows);
+//   } catch (err) {
+//     res.status(500).json({ error: err.message });
+//   }
+// });
 
 // Get material issue by ID, including items
 router.get("/:id", async (req, res) => {
