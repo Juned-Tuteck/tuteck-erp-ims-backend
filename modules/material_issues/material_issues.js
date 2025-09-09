@@ -148,7 +148,7 @@ const materialIssueController = {
         .join(", ");
       const values = [id, ...Object.values(validFields)];
       const result = await db.query(
-        `UPDATE ims.t_material_issue_items SET ${setClause} WHERE id = $1 AND is_active = true AND is_deleted = false RETURNING *`,
+        `UPDATE ims.t_material_issues SET ${setClause} WHERE id = $1 AND is_active = true AND is_deleted = false RETURNING *`,
         values
       );
       if (result.rows.length === 0) {

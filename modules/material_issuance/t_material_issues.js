@@ -33,7 +33,7 @@ router.get("/:id", async (req, res) => {
     // Get related items with receiver name, item details, and bom name
     const itemsResult = await db.query(
       `SELECT mii.*, rw.warehouse_name AS receiver_name, 
-              i.item_name, i.item_code, i.hsn_code, u.uom_name, b.name
+              i.item_name, i.item_code, i.hsn_code, u.uom_name, b.name as bom_name
        FROM ims.t_material_issue_items mii
        LEFT JOIN ims.t_warehouse rw ON mii.receiving_reference_id = rw.id
        LEFT JOIN ims.t_item i ON mii.item_id = i.id
