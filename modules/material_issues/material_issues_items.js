@@ -222,9 +222,11 @@ const materialIssueItemsController = {
 
         // Check if the item already exists
         const existingItem = await client.query(
-          `SELECT id FROM ims.t_material_issue_items WHERE item_allocation_id = $1 AND item_id = $2 AND is_active = true AND is_deleted = false`,
-          [item_allocation_id, item_id]
+          `SELECT id FROM ims.t_material_issue_items WHERE item_allocation_id = $1 AND issue_id = $2 AND is_active = true AND is_deleted = false`,
+          [item_allocation_id, issue_id]
         );
+
+        console.log("Existing Item:", existingItem.rows);
 
         if (existingItem.rows.length > 0) {
           // Update the existing item
