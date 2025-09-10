@@ -74,6 +74,7 @@ const materialIssueController = {
   async create(req, res) {
     try {
       const {
+        issue_number,
         issue_date,
         issue_expected_date,
         sender_type,
@@ -93,7 +94,7 @@ const materialIssueController = {
                     created_by
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
         [
-          null,
+          issue_number,
           issue_date,
           issue_expected_date,
           sender_type || "warehouse",
