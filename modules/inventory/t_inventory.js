@@ -222,4 +222,28 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
+// Add a new route to get inventory details by warehouse_id and item_id
+router.get("/warehouse/:warehouse_id/item/:item_id", async (req, res) => {
+  try {
+    const { warehouse_id, item_id } = req.params;
+
+    // Query to fetch inventory details and source_number
+    const result = await db.query(
+      `SELECT inv.*, s.source_number
+       FROM ims.t_inventory inv
+       LEFT JOIN ims.t_source s ON inv.source_id = s.id
+       WHERE inv.store_id = $1 AND inv.item_id = $2 AND inv.is_deleted = false`,
+      [warehouse_id, item_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "No inventory found for the given warehouse_id and item_id" });
+    }
+
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

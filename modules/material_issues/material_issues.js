@@ -294,6 +294,146 @@ const materialIssueController = {
       client.release();
     }
   },
+
+  // Get BOM details by BOM ID
+  async getBomDetailsById(req, res) {
+    try {
+      const { bomId } = req.params;
+      console.log("Fetching BOM details for ID:", bomId);
+      
+      const query = `
+        SELECT 
+          bom.*, 
+          lead.lead_number, lead.business_name, lead.project_name, lead.project_value, lead.lead_type, lead.work_type, 
+          project.name AS project_name,
+          json_agg(
+            json_build_object(
+              'item', item,
+              'required_quantity', aggregated_details.total_required_quantity,
+              'supply_rate', aggregated_details.supply_rate,
+              'installation_rate', aggregated_details.installation_rate,
+              'net_rate', aggregated_details.net_rate,
+              'material_type', aggregated_details.material_type
+            )
+          ) AS items
+        FROM crm.t_bom bom
+        LEFT JOIN crm.t_lead lead ON bom.lead_id = lead.lead_id
+        LEFT JOIN pms.t_project project ON bom.project_id = project.id
+        LEFT JOIN (
+          SELECT 
+            bom_detail.bom_id,
+            bom_detail.item_id,
+            SUM(bom_detail.required_quantity) AS total_required_quantity,
+            MAX(bom_detail.supply_rate) AS supply_rate,
+            MAX(bom_detail.installation_rate) AS installation_rate,
+            MAX(bom_detail.net_rate) AS net_rate,
+            MAX(bom_detail.material_type) AS material_type
+          FROM crm.t_bom_detail bom_detail
+          GROUP BY bom_detail.bom_id, bom_detail.item_id
+        ) AS aggregated_details ON bom.id = aggregated_details.bom_id
+        LEFT JOIN ims.t_item item ON aggregated_details.item_id = item.id
+        WHERE bom.is_active = TRUE AND bom.is_deleted = FALSE AND bom.id = $1
+        GROUP BY bom.id, lead.lead_number, lead.business_name, lead.project_name, lead.project_value, lead.lead_type, lead.work_type, project.name
+        ORDER BY bom.created_at DESC;
+      `;
+
+      const result = await db.query(query, [bomId]);
+      
+      res.json({
+        success: true,
+        statusCode: 200,
+        data: result.rows[0],
+        clientMessage: "BOM detail fetched successfully",
+        devMessage:
+          "Fetched BOM detail with aggregated required_quantity for items and project name from pms.t_project",
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        statusCode: 500,
+        data: null,
+        clientMessage: "Something went wrong, please try again later",
+        devMessage: error.message,
+      });
+    }
+  },
+
+  // Reject material issue item
+  async reject(req, res) {
+    const client = await db.getClient();
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+
+      if (!status) {
+        return res.status(400).json({
+          success: false,
+          statusCode: 400,
+          data: null,
+          clientMessage: "Status is required",
+          devMessage: "Status field is missing in the request body",
+        });
+      }
+
+      await client.query("BEGIN");
+
+      // Fetch all inventory_ids for the given MI id
+      const itemsResult = await client.query(
+        `SELECT inventory_id FROM ims.t_material_issue_items WHERE issue_id = $1 AND is_active = true AND is_deleted = false`,
+        [id]
+      );
+
+      for (const allocation of itemsResult.rows) {
+        const allocationJson = JSON.parse(allocation.inventory_id);
+
+      // Update inventory quantities
+      for (const inventory of allocationJson) {
+        await client.query(
+          `UPDATE ims.t_inventory SET quantity = quantity + $1, updated_at = now(), updated_by = $2 WHERE id = $3`,
+          [inventory.allocated_qty, CREATED_BY, inventory.inventory_id]
+        );
+      }
+    }
+      // Update the status of the material issue
+      const result = await client.query(
+        `UPDATE ims.t_material_issues SET status = $1, updated_at = now(), updated_by = $2 
+         WHERE id = $3 AND is_active = true AND is_deleted = false RETURNING *`,
+        [status, CREATED_BY, id]
+      );
+
+      if (result.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({
+          success: false,
+          statusCode: 404,
+          data: null,
+          clientMessage: "Material issue item not found",
+          devMessage: "No material issue item found with the provided ID",
+        });
+      }
+
+      await client.query("COMMIT");
+
+      return res.status(200).json({
+        success: true,
+        statusCode: 200,
+        data: result.rows[0],
+        clientMessage: "Status updated successfully",
+        devMessage: "Material issue item status updated successfully",
+      });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      return res.status(500).json({
+        success: false,
+        statusCode: 500,
+        data: null,
+        clientMessage: "Something went wrong, please try again later",
+        devMessage: error.message,
+      });
+    } finally {
+      client.release();
+    }
+  },
 };
 
 module.exports = materialIssueController;
