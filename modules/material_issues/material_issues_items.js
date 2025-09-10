@@ -210,7 +210,6 @@ const materialIssueItemsController = {
       for (const item of items) {
         const {
           issue_id,
-          inventory_id,
           item_id,
           issued_quantity,
           bom_id,
@@ -218,15 +217,16 @@ const materialIssueItemsController = {
           rate,
           item_allocation_id,
           receiver_type,
+          allocations
         } = item;
+
+        const inventory_id = JSON.stringify(allocations);
 
         // Check if the item already exists
         const existingItem = await client.query(
           `SELECT id FROM ims.t_material_issue_items WHERE item_allocation_id = $1 AND issue_id = $2 AND is_active = true AND is_deleted = false`,
           [item_allocation_id, issue_id]
         );
-
-        console.log("Existing Item:", existingItem.rows);
 
         if (existingItem.rows.length > 0) {
           // Update the existing item
@@ -247,8 +247,17 @@ const materialIssueItemsController = {
               item_id,
             ]
           );
-          processedData.push(updateResult.rows[0]);
-        } else {
+            processedData.push(updateResult.rows[0]);
+          } else {
+            for (const allocation of allocations) {
+            const { inventory_id, allocated_qty } = allocation;
+            await client.query(
+              `UPDATE ims.t_inventory 
+               SET quantity = quantity - $1 
+               WHERE id = $2 AND quantity >= $1`,
+              [allocated_qty, inventory_id]
+            );
+            }
           // Insert a new item
           const insertResult = await client.query(
             `INSERT INTO ims.t_material_issue_items (issue_id, inventory_id, item_id, issued_quantity, bom_id, receiving_reference_id, rate, item_allocation_id, receiver_type, created_by) 
