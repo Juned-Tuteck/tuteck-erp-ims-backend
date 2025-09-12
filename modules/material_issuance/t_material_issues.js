@@ -54,4 +54,20 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+// Get all approved material issues where is_dc_generated is false
+router.get("/get/approved", async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT mi.*, w.warehouse_name, w.address
+   FROM ims.t_material_issues mi
+   LEFT JOIN ims.t_warehouse w ON mi.sender_reference_id = w.id
+   WHERE mi.status = 'approved' AND mi.is_dc_generated = false AND mi.is_active = true AND mi.is_deleted = false
+   ORDER BY mi.created_at DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

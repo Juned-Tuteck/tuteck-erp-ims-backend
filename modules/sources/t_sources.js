@@ -59,9 +59,9 @@ router.post("/", async (req, res) => {
     }
     const result = await db.query(
       `INSERT INTO ims.t_source (
-        source_type, source_number, inbound_trigger_issue_id, inbound_trigger_issue_type, receiver_project_id, sender_project_id, source_date, sender_warehouse_id, receiver_warehouse_id, vendor_id, invoice_number, invoice_amount, generate_qr, status, created_by, updated_by, is_deleted, is_active, po_number
+        source_type, source_number, inbound_trigger_issue_id, inbound_trigger_issue_type, receiver_project_id, sender_project_id, source_date, sender_warehouse_id, receiver_warehouse_id, vendor_id, invoice_number, invoice_amount, generate_qr, status, created_by, updated_by, is_deleted, is_active, po_number, dc_number
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
       ) RETURNING *`,
       [
         body.source_type || "GRN",
@@ -83,6 +83,7 @@ router.post("/", async (req, res) => {
         body.is_deleted === undefined ? false : body.is_deleted,
         body.is_active === undefined ? true : body.is_active,
         body.po_number || null,
+        body.dc_number || null,
       ]
     );
     res.status(201).json(result.rows[0]);

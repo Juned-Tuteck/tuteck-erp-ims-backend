@@ -13,6 +13,7 @@ const itemController = require("../modules/item/item");
 const tInventoryController = require("../modules/inventory/t_inventory");
 const tDeliveryChallanRouter = require("../modules/delivery_challan/t_delivery_challan");
 const tMaterialIssuesRouter = require("../modules/material_issuance/t_material_issues");
+const tItemAllocationRouter = require("../modules/t_item_allocation/t_item_allocation");
 // Source APIs
 const tSourceRouter = require("../modules/sources/t_sources");
 // Source Detail APIs
@@ -105,6 +106,7 @@ router.use("/api/source-item-warehouse-details", tSourceItemWarehouseRouter);
 router.use("/api/inventory", tInventoryController);
 router.use("/api/delivery-challan", tDeliveryChallanRouter);
 router.use("/api/material_issues", tMaterialIssuesRouter);
+router.use("/api/item-allocation", tItemAllocationRouter);
 
 // Allocation routes
 router.get("/api/allocation", allocationController.getAll);

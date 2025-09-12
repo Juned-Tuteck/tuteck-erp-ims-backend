@@ -63,6 +63,7 @@ router.get("/:id", async (req, res) => {
          WHERE mii.issue_id = $1 AND mii.is_deleted = false`,
         [dc.transfer_id]
       );
+      console.log("receiverMIItemResult:", receiverMIItemResult.rows);
       if (receiverMIItemResult.rows.length > 0) {
         receiverMaterialIssueItem = receiverMIItemResult.rows[0];
         receiverWarehouse = {
@@ -77,6 +78,7 @@ router.get("/:id", async (req, res) => {
           inventory_id: row.inventory_id,
           item_id: row.item_id,
           issued_quantity: row.issued_quantity,
+          rate: row.rate,
           created_at: row.created_at,
           created_by: row.created_by,
           updated_at: row.updated_at,
@@ -101,6 +103,7 @@ router.get("/:id", async (req, res) => {
             id: row.item_id,
             item_code: row.item_code,
             item_name: row.item_name,
+            rate: row.rate,
             hsn_code: row.hsn_code,
             description: row.description,
             safety_stock: row.safety_stock,
@@ -202,6 +205,38 @@ router.post("/", async (req, res) => {
       ]
     );
     res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update status of delivery challan
+router.patch("/:id/status", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, updated_by } = req.body;
+    if (!status) {
+      return res.status(400).json({ error: "Status is required" });
+    }
+    const result = await db.query(
+      `UPDATE ims.t_delivery_challan SET status=$1, updated_by=$2, updated_at=now() WHERE id=$3 AND is_deleted=false RETURNING *`,
+      [status, updated_by || null, id]
+    );
+    if (result.rows.length === 0)
+      return res.status(404).json({ error: "Not found" });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all delivery challans where status is 'generated'
+router.get("/get/generated", async (req, res) => {
+  try {
+    const result = await db.query(
+      "SELECT * FROM ims.t_delivery_challan WHERE status = 'generated' AND is_deleted = false"
+    );
+    res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
