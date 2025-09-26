@@ -26,6 +26,11 @@ const allocationDetailsController = require("../modules/allocation/allocation_de
 const materialIssueController = require("../modules/material_issues/material_issues");
 const materialIssueItemsController = require("../modules/material_issues/material_issues_items");
 
+//user access
+const userAccessController = require("../modules/user-access/user_access");
+
+router.use("/api/user-access", userAccessController);
+
 // Brand routes
 router.get("/api/brand", brandController.getAll);
 router.get("/api/brand/:id", brandController.getById);
@@ -139,13 +144,19 @@ router.get("/api/material-issues", materialIssueController.getAll);
 router.get("/api/material-issues/:id", materialIssueController.getById);
 router.post("/api/material-issues", materialIssueController.create);
 router.put("/api/material-issues/:id", materialIssueController.update);
-router.put("/api/material-issues/add/update-status/:id", materialIssueController.reject);
+router.put(
+  "/api/material-issues/add/update-status/:id",
+  materialIssueController.reject
+);
 router.delete("/api/material-issues/:id", materialIssueController.delete);
 router.put(
   "/api/material-issues/add/bulk",
   materialIssueController.bulkInsertOrUpdate
 );
-router.get("/api/material-issues/get/bom-by-id/:bomId", materialIssueController.getBomDetailsById);
+router.get(
+  "/api/material-issues/get/bom-by-id/:bomId",
+  materialIssueController.getBomDetailsById
+);
 
 // Material Issue Items routes
 router.get("/api/material-issue-items", materialIssueItemsController.getAll);
