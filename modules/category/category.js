@@ -253,11 +253,110 @@ const categoryController = {
     }
   },
 
-  // Process uploaded Excel and bulk insert categories
+  // // Process uploaded Excel and bulk insert categories
+  // async processExcelAndBulkInsert(req, res) {
+  //   const client = await db.getClient();
+  //   try {
+  //     // Check if a file is uploaded
+  //     if (!req.file) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         statusCode: 400,
+  //         data: null,
+  //         clientMessage: 'No file uploaded',
+  //         devMessage: 'Excel file is required for processing'
+  //       });
+  //     }
+
+  //     // Read the uploaded Excel file
+  //     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+  //     const sheetName = workbook.SheetNames[0]; // Assuming data is in the first sheet
+  //     const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
+
+  //     if (sheetData.length <= 1) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         statusCode: 400,
+  //         data: null,
+  //         clientMessage: 'Excel file is empty or has no data rows',
+  //         devMessage: 'No data found in the uploaded Excel file'
+  //       });
+  //     }
+
+  //     const headers = sheetData[0].map(header => header.trim().toLowerCase());
+  //     console.log('Headers:', headers); // Debugging line to check headers
+  //     const rows = sheetData.slice(1);
+
+  //     const categoryNameIndex = headers.indexOf('category name');
+  //     const brandIdIndex = headers.indexOf('brand id');
+  //     const descriptionIndex = headers.indexOf('description');
+  //     const parentCategoryIdIndex = headers.indexOf('parent category id');
+
+  //     if (categoryNameIndex === -1 || brandIdIndex === -1) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         statusCode: 400,
+  //         data: null,
+  //         clientMessage: 'Required columns are missing',
+  //         devMessage: 'category_name and brand_id columns are required in the uploaded Excel file'
+  //       });
+  //     }
+
+  //     await client.query('BEGIN');
+  //     const insertedCategories = [];
+
+  //     let currentTimestamp = new Date(); // Start with the current timestamp
+
+  //     for (const row of rows) {
+  //       const category_name = row[categoryNameIndex]?.trim();
+  //       const brand_id = row[brandIdIndex]?.trim();
+  //       const description = row[descriptionIndex]?.trim();
+  //       const parent_category_id = row[parentCategoryIdIndex]?.trim();
+
+  //       if (!category_name || !brand_id) {
+  //         throw new Error('category_name and brand_id are required in each row');
+  //       }
+
+  //       const desc = description !== undefined ? description : null;
+  //       const parentId = parent_category_id !== undefined ? parent_category_id : null;
+  //       const created_at = currentTimestamp.toISOString().replace('T', ' ').replace('Z', ' +0000');
+  //       currentTimestamp = new Date(currentTimestamp.getTime() + 10); // Increment by 1 millisecond
+
+  //       const result = await client.query(
+  //         `INSERT INTO ims.t_category (category_name, brand_id, description, parent_category_id, created_by, created_at) 
+  //          VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+  //         [category_name, brand_id, desc, parentId, CREATED_BY, created_at]
+  //       );
+  //       insertedCategories.push(result.rows[0]);
+  //     }
+
+  //     await client.query('COMMIT');
+
+  //     return res.status(201).json({
+  //       success: true,
+  //       statusCode: 201,
+  //       data: insertedCategories,
+  //       clientMessage: 'Excel data processed and inserted successfully',
+  //       devMessage: `${insertedCategories.length} categories inserted successfully`
+  //     });
+  //   } catch (error) {
+  //     await client.query('ROLLBACK');
+  //     return res.status(500).json({
+  //       success: false,
+  //       statusCode: 500,
+  //       data: null,
+  //       clientMessage: 'Something went wrong, please try again later',
+  //       devMessage: error.message
+  //     });
+  //   } finally {
+  //     client.release();
+  //   }
+  // },
+
+  // Process uploaded Excel and bulk insert categories using brand_code and parent_category_code
   async processExcelAndBulkInsert(req, res) {
     const client = await db.getClient();
     try {
-      // Check if a file is uploaded
       if (!req.file) {
         return res.status(400).json({
           success: false,
@@ -268,9 +367,9 @@ const categoryController = {
         });
       }
 
-      // Read the uploaded Excel file
+      // Read Excel file
       const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
-      const sheetName = workbook.SheetNames[0]; // Assuming data is in the first sheet
+      const sheetName = workbook.SheetNames[0];
       const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
 
       if (sheetData.length <= 1) {
@@ -284,49 +383,71 @@ const categoryController = {
       }
 
       const headers = sheetData[0].map(header => header.trim().toLowerCase());
-      console.log('Headers:', headers); // Debugging line to check headers
+      console.log('Headers:', headers);
       const rows = sheetData.slice(1);
 
       const categoryNameIndex = headers.indexOf('category name');
-      const brandIdIndex = headers.indexOf('brand id');
+      const brandCodeIndex = headers.indexOf('brand code');
+      const parentCategoryCodeIndex = headers.indexOf('parent category code');
       const descriptionIndex = headers.indexOf('description');
-      const parentCategoryIdIndex = headers.indexOf('parent category id');
 
-      if (categoryNameIndex === -1 || brandIdIndex === -1) {
+      // brand_code is mandatory
+      if (categoryNameIndex === -1 || brandCodeIndex === -1) {
         return res.status(400).json({
           success: false,
           statusCode: 400,
           data: null,
           clientMessage: 'Required columns are missing',
-          devMessage: 'category_name and brand_id columns are required in the uploaded Excel file'
+          devMessage: 'category_name and brand_code columns are required in the uploaded Excel file'
         });
       }
 
       await client.query('BEGIN');
       const insertedCategories = [];
+      let currentTimestamp = new Date();
 
-      let currentTimestamp = new Date(); // Start with the current timestamp
-
-      for (const row of rows) {
+      for (const [rowIndex, row] of rows.entries()) {
         const category_name = row[categoryNameIndex]?.trim();
-        const brand_id = row[brandIdIndex]?.trim();
+        const brand_code = row[brandCodeIndex]?.trim();
+        const parent_category_code = row[parentCategoryCodeIndex]?.trim();
         const description = row[descriptionIndex]?.trim();
-        const parent_category_id = row[parentCategoryIdIndex]?.trim();
 
-        if (!category_name || !brand_id) {
-          throw new Error('category_name and brand_id are required in each row');
+        if (!category_name || !brand_code) {
+          throw new Error(`Row ${rowIndex + 2}: 'category_name' and 'brand_code' are required`);
         }
 
-        const desc = description !== undefined ? description : null;
-        const parentId = parent_category_id !== undefined ? parent_category_id : null;
+        // Fetch brand_id using brand_code
+        const brandResult = await client.query(
+          `SELECT id FROM ims.t_brand WHERE brand_code = $1`,
+          [brand_code]
+        );
+
+        if (brandResult.rowCount === 0) {
+          throw new Error(`Row ${rowIndex + 2}: No brand found with code '${brand_code}'`);
+        }
+
+        const brand_id = brandResult.rows[0].id;
+
+        // Fetch parent_category_id using parent_category_code (if provided)
+        let parent_category_id = null;
+        if (parent_category_code) {
+          const parentResult = await client.query(
+            `SELECT id FROM ims.t_category WHERE category_code = $1`,
+            [parent_category_code]
+          );
+          parent_category_id = parentResult.rows[0]?.id || null;
+        }
+
         const created_at = currentTimestamp.toISOString().replace('T', ' ').replace('Z', ' +0000');
-        currentTimestamp = new Date(currentTimestamp.getTime() + 10); // Increment by 1 millisecond
+        currentTimestamp = new Date(currentTimestamp.getTime() + 10); // +10ms
 
         const result = await client.query(
-          `INSERT INTO ims.t_category (category_name, brand_id, description, parent_category_id, created_by, created_at) 
-           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-          [category_name, brand_id, desc, parentId, CREATED_BY, created_at]
+          `INSERT INTO ims.t_category (category_name, brand_id, description, parent_category_id, created_by, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          RETURNING *`,
+          [category_name, brand_id, description || null, parent_category_id, CREATED_BY, created_at]
         );
+
         insertedCategories.push(result.rows[0]);
       }
 

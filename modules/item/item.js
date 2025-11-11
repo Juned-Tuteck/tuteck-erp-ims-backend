@@ -89,6 +89,9 @@ const itemController = {
         insurance_end_date, insurance_premium_amount, insurance_claim_amount,
         insurance_status
       } = req.body;
+
+      let currentTimestamp = new Date();
+      const created_at = currentTimestamp.toISOString().replace('T', ' ').replace('Z', ' +0000');
       
       const result = await db.query(
         `INSERT INTO ims.t_item (
@@ -99,10 +102,10 @@ const itemController = {
           is_capital_item, is_scrap_item, insurance_number, insurance_provider,
           insurance_type, insurance_renewal_frequency, insurance_start_date,
           insurance_end_date, insurance_premium_amount, insurance_claim_amount,
-          insurance_status, created_by
+          insurance_status, created_by, created_at, vendor_supply_rate_updated_at
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-          $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30
+          $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $31
         ) RETURNING *`,
         [
           item_code, item_name, hsn_code, description, safety_stock, reorder_quantity,
@@ -112,7 +115,7 @@ const itemController = {
           is_capital_item, is_scrap_item, insurance_number, insurance_provider,
           insurance_type, insurance_renewal_frequency, insurance_start_date,
           insurance_end_date, insurance_premium_amount, insurance_claim_amount,
-          insurance_status, CREATED_BY
+          insurance_status, CREATED_BY, created_at
         ]
       );
 
@@ -307,6 +310,135 @@ const itemController = {
     }
   },
 
+  // // Process uploaded Excel and bulk insert items
+  // async processExcelAndBulkInsert(req, res) {
+  //   const client = await db.getClient();
+  //   try {
+  //     // Check if a file is uploaded
+  //     if (!req.file) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         statusCode: 400,
+  //         data: null,
+  //         clientMessage: 'No file uploaded',
+  //         devMessage: 'Excel file is required for processing'
+  //       });
+  //     }
+
+  //     // Read the uploaded Excel file
+  //     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+  //     const sheetName = workbook.SheetNames[0]; // Assuming data is in the first sheet
+  //     const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
+
+  //     if (sheetData.length <= 1) {
+  //       return res.status(400).json({
+  //         success: false,
+  //         statusCode: 400,
+  //         data: null,
+  //         clientMessage: 'Excel file is empty or has no data rows',
+  //         devMessage: 'No data found in the uploaded Excel file'
+  //       });
+  //     }
+
+  //     const headers = sheetData[0].map(header => header.trim().toLowerCase());
+  //     console.log('Headers:', headers); // Debugging line to check headers
+  //     const rows = sheetData.slice(1);
+
+  //     const fieldMappings = {
+  //       'item name': 'item_name',
+  //       'hsn code': 'hsn_code',
+  //       'description': 'description',
+  //       'safety stock': 'safety_stock',
+  //       'reorder quantity': 'reorder_quantity',
+  //       'base vendor supply rate': 'latest_lowest_basic_supply_rate',
+  //       'base installation rate': 'latest_lowest_basic_installation_rate',
+  //       'latest lowest net rate': 'latest_lowest_net_rate',
+  //       'dimensions': 'dimensions',
+  //       'parent item id': 'parent_item_id',
+  //       'material type': 'material_type',
+  //       'category id': 'category_id',
+  //       'brand id': 'brand_id',
+  //       'uom id': 'uom_id',
+  //       'installation rate': 'installation_rate',
+  //       'is capital item': 'is_capital_item',
+  //       'is scrap item': 'is_scrap_item',
+  //       'insurance number': 'insurance_number',
+  //       'insurance provider': 'insurance_provider',
+  //       'insurance type': 'insurance_type',
+  //       'insurance renewal frequency': 'insurance_renewal_frequency',
+  //       'insurance start date': 'insurance_start_date',
+  //       'insurance end date': 'insurance_end_date',
+  //       'insurance premium amount': 'insurance_premium_amount',
+  //       'insurance claim amount': 'insurance_claim_amount',
+  //       'insurance status': 'insurance_status'
+  //     };
+
+  //     const columnIndexes = {};
+  //     for (const [humanReadable, dbField] of Object.entries(fieldMappings)) {
+  //       const index = headers.indexOf(humanReadable);
+  //       if (index !== -1) {
+  //         columnIndexes[dbField] = index;
+  //       }
+  //     }
+
+  //     await client.query('BEGIN');
+  //     const insertedItems = [];
+
+  //     let currentTimestamp = new Date(); // Start with the current timestamp
+
+  //     console.log("rows: ", rows)
+      
+  //     for (const row of rows) {
+  //       if (row.length>0){
+  //         const itemData = {};
+  //         for (const [dbField, index] of Object.entries(columnIndexes)) {
+  //           itemData[dbField] = row[index] !== undefined && row[index] !== null ? String(row[index]).trim() : null;
+  //         }
+
+  //         if (!itemData.item_name) {
+  //           throw new Error('Item Name is required in each row');
+  //         }
+
+  //         console.log('Item Data:', itemData); // Debugging line to check item data
+
+  //         const created_at = currentTimestamp.toISOString().replace('T', ' ').replace('Z', ' +0000');
+  //         currentTimestamp = new Date(currentTimestamp.getTime() + 10); // Increment by 1 millisecond
+
+  //         const result = await client.query(
+  //           `INSERT INTO ims.t_item (
+  //             ${Object.keys(itemData).join(', ')}, created_by, created_at, vendor_supply_rate_updated_at
+  //           ) VALUES (
+  //             ${Object.keys(itemData).map((_, i) => `$${i + 1}`).join(', ')}, $${Object.keys(itemData).length + 1}, $${Object.keys(itemData).length + 2}, $${Object.keys(itemData).length + 2}
+  //           ) RETURNING *`,
+  //           [...Object.values(itemData), CREATED_BY, created_at]
+  //         );
+  //         insertedItems.push(result.rows[0]);
+  //       }
+  //     }
+
+  //     await client.query('COMMIT');
+
+  //     return res.status(201).json({
+  //       success: true,
+  //       statusCode: 201,
+  //       data: insertedItems,
+  //       clientMessage: 'Excel data processed and inserted successfully',
+  //       devMessage: `${insertedItems.length} items inserted successfully`
+  //     });
+  //   } catch (error) {
+  //     await client.query('ROLLBACK');
+  //     return res.status(500).json({
+  //       success: false,
+  //       statusCode: 500,
+  //       data: null,
+  //       clientMessage: 'Something went wrong, please try again later',
+  //       devMessage: error.message
+  //     });
+  //   } finally {
+  //     client.release();
+  //   }
+  // },
+
   // Process uploaded Excel and bulk insert items
   async processExcelAndBulkInsert(req, res) {
     const client = await db.getClient();
@@ -338,7 +470,6 @@ const itemController = {
       }
 
       const headers = sheetData[0].map(header => header.trim().toLowerCase());
-      console.log('Headers:', headers); // Debugging line to check headers
       const rows = sheetData.slice(1);
 
       const fieldMappings = {
@@ -347,15 +478,18 @@ const itemController = {
         'description': 'description',
         'safety stock': 'safety_stock',
         'reorder quantity': 'reorder_quantity',
-        'latest lowest basic supply rate': 'latest_lowest_basic_supply_rate',
-        'latest lowest basic installation rate': 'latest_lowest_basic_installation_rate',
+        'base vendor supply rate': 'latest_lowest_basic_supply_rate',
+        'base installation rate': 'latest_lowest_basic_installation_rate',
         'latest lowest net rate': 'latest_lowest_net_rate',
         'dimensions': 'dimensions',
         'parent item id': 'parent_item_id',
         'material type': 'material_type',
-        'category id': 'category_id',
-        'brand id': 'brand_id',
-        'uom id': 'uom_id',
+
+        // 🔹 Use *codes* instead of IDs
+        'category code': 'category_code',
+        'brand code': 'brand_code',
+        'uom code': 'uom_code',
+
         'installation rate': 'installation_rate',
         'is capital item': 'is_capital_item',
         'is scrap item': 'is_scrap_item',
@@ -380,33 +514,84 @@ const itemController = {
 
       await client.query('BEGIN');
       const insertedItems = [];
-
-      let currentTimestamp = new Date(); // Start with the current timestamp
+      let currentTimestamp = new Date();
 
       for (const row of rows) {
-        const itemData = {};
-        for (const [dbField, index] of Object.entries(columnIndexes)) {
-          itemData[dbField] = row[index] !== undefined && row[index] !== null ? String(row[index]).trim() : null;
+        if (row.length > 0) {
+          const itemData = {};
+          for (const [dbField, index] of Object.entries(columnIndexes)) {
+            itemData[dbField] = row[index] !== undefined && row[index] !== null
+              ? String(row[index]).trim()
+              : null;
+          }
+
+          if (!itemData.item_name) {
+            throw new Error('Item Name is required in each row');
+          }
+
+           // 🔹 Convert string booleans → real booleans (default false)
+          const boolFields = ['is_capital_item', 'is_scrap_item'];
+          for (const field of boolFields) {
+            if (itemData[field] === null || itemData[field] === '') {
+              itemData[field] = false;
+            } else {
+              const value = itemData[field].toString().toLowerCase();
+              if (['true', 'yes', '1'].includes(value)) itemData[field] = true;
+              else itemData[field] = false; // everything else → false
+            }
+          }
+
+          // 🔹 Lookup actual IDs from code fields
+          let categoryId = null;
+          let brandId = null;
+          let uomId = null;
+
+          if (itemData.category_code) {
+            const result = await client.query(
+              'SELECT id FROM ims.t_category WHERE category_code = $1',
+              [itemData.category_code]
+            );
+            categoryId = result.rows[0]?.id || null;
+
+            const brandResult = await client.query(
+              'SELECT brand_id FROM ims.t_category WHERE category_code = $1',
+              [itemData.category_code]
+            );
+            brandId = brandResult.rows[0]?.brand_id || null;
+          }
+
+          if (itemData.uom_code) {
+            const result = await client.query(
+              'SELECT id FROM ims.t_uom WHERE uom_code = $1',
+              [itemData.uom_code]
+            );
+            uomId = result.rows[0]?.id || null;
+          }
+
+          // 🔹 Replace codes with actual IDs for insertion
+          itemData.category_id = categoryId;
+          itemData.brand_id = brandId;
+          itemData.uom_id = uomId;
+
+          delete itemData.category_code;
+          delete itemData.brand_code;
+          delete itemData.uom_code;
+
+          const created_at = currentTimestamp.toISOString().replace('T', ' ').replace('Z', ' +0000');
+          currentTimestamp = new Date(currentTimestamp.getTime() + 10);
+
+          const result = await client.query(
+            `INSERT INTO ims.t_item (
+              ${Object.keys(itemData).join(', ')}, created_by, created_at, vendor_supply_rate_updated_at
+            ) VALUES (
+              ${Object.keys(itemData).map((_, i) => `$${i + 1}`).join(', ')},
+              $${Object.keys(itemData).length + 1}, $${Object.keys(itemData).length + 2}, $${Object.keys(itemData).length + 2}
+            ) RETURNING *`,
+            [...Object.values(itemData), CREATED_BY, created_at]
+          );
+
+          insertedItems.push(result.rows[0]);
         }
-
-        if (!itemData.item_name) {
-          throw new Error('Item Name is required in each row');
-        }
-
-        console.log('Item Data:', itemData); // Debugging line to check item data
-
-        const created_at = currentTimestamp.toISOString().replace('T', ' ').replace('Z', ' +0000');
-        currentTimestamp = new Date(currentTimestamp.getTime() + 10); // Increment by 1 millisecond
-
-        const result = await client.query(
-          `INSERT INTO ims.t_item (
-            ${Object.keys(itemData).join(', ')}, created_by, created_at
-          ) VALUES (
-            ${Object.keys(itemData).map((_, i) => `$${i + 1}`).join(', ')}, $${Object.keys(itemData).length + 1}, $${Object.keys(itemData).length + 2}
-          ) RETURNING *`,
-          [...Object.values(itemData), CREATED_BY, created_at]
-        );
-        insertedItems.push(result.rows[0]);
       }
 
       await client.query('COMMIT');
