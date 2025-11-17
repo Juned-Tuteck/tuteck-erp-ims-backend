@@ -78,6 +78,7 @@ const materialIssueController = {
         issue_date,
         issue_expected_date,
         sender_type,
+        issuance_type,
         sender_reference_id,
         status,
       } = req.body;
@@ -89,15 +90,17 @@ const materialIssueController = {
                     issue_date, 
                     issue_expected_date, 
                     sender_type, 
+                    issuance_type,
                     sender_reference_id, 
                     status, 
                     created_by
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
         [
           issue_number,
           issue_date,
           issue_expected_date,
           sender_type || "warehouse",
+          issuance_type || "warehouse",
           sender_reference_id,
           status || "pending",
           CREATED_BY,

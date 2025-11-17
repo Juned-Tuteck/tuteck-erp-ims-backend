@@ -70,15 +70,15 @@ const warehouseController = {
   async create(req, res) {
     const client = await db.getClient();
     try {
-      const { warehouse_name, address } = req.body;
+      const { warehouse_name, address , is_virtual } = req.body;
 
       await client.query("BEGIN");
 
       // Insert into ims.t_warehouse
       const warehouseResult = await client.query(
-        `INSERT INTO ims.t_warehouse (warehouse_name, address, created_by) 
-         VALUES ($1, $2, $3) RETURNING *`,
-        [warehouse_name, address, CREATED_BY]
+        `INSERT INTO ims.t_warehouse (warehouse_name, address, is_virtual, created_by) 
+         VALUES ($1, $2, $3, $4) RETURNING *`,
+        [warehouse_name, address, is_virtual, CREATED_BY]
       );
 
       const warehouse = warehouseResult.rows[0];
@@ -337,6 +337,7 @@ const warehouseController = {
 
       await client.query("BEGIN");
       const insertedWarehouses = [];
+      const insertedProjects = [];
 
       let currentTimestamp = new Date(); // Start with the current timestamp
 
@@ -359,6 +360,17 @@ const warehouseController = {
            VALUES ($1, $2, $3, $4) RETURNING *`,
           [warehouse_name, address, CREATED_BY, created_at]
         );
+
+          // Insert into pms.t_project
+        const project_species = "project warehouse";
+        const project_name = `${warehouse_name} project`;
+
+        const projectResult = await client.query(
+          `INSERT INTO pms.t_project (warehouse_id, project_species, name, created_by, created_at) 
+          VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+          [result.rows[0].id, project_species, project_name, CREATED_BY, created_at]
+        );
+        insertedProjects.push(projectResult.rows[0]);
         insertedWarehouses.push(result.rows[0]);
       }
 
@@ -367,9 +379,9 @@ const warehouseController = {
       return res.status(201).json({
         success: true,
         statusCode: 201,
-        data: insertedWarehouses,
+        data: { warehouses: insertedWarehouses, projects: insertedProjects },
         clientMessage: "Excel data processed and inserted successfully",
-        devMessage: `${insertedWarehouses.length} warehouses inserted successfully`,
+        devMessage: `${insertedWarehouses.length} warehouses inserted with ${insertedProjects.length} projects successfully`,
       });
     } catch (error) {
       await client.query("ROLLBACK");
