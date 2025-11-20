@@ -25,7 +25,8 @@ const allocationController = require("../modules/allocation/allocation"); // Imp
 const allocationDetailsController = require("../modules/allocation/allocation_details"); // Import allocation details controller
 const materialIssueController = require("../modules/material_issues/material_issues");
 const materialIssueItemsController = require("../modules/material_issues/material_issues_items");
-
+const materialIssuanceItemsP2PController = require("../modules/material_issues/material_issues_items_p2p");
+const materialIssuanceItemTransfersP2PController = require("../modules/material_issues/material_issues_items_transfer_p2p");
 //user access
 const userAccessController = require("../modules/user-access/user_access");
 
@@ -176,6 +177,30 @@ router.delete(
 router.put(
   "/api/material-issue-items/add/bulk",
   materialIssueItemsController.bulkInsertOrUpdate
+);
+
+// Material Issuance Items P2P routes
+router.get(
+  "/api/material-issuance-items-p2p",
+  materialIssuanceItemsP2PController.getAll
+);
+router.post(
+  "/api/material-issuance-items-p2p/bulk",
+  materialIssuanceItemsP2PController.bulkInsert
+);
+
+// Material Issuance Item Transfers P2P routes
+router.get(
+  "/api/material-issuance-item-transfers-p2p",
+  materialIssuanceItemTransfersP2PController.getAll
+);
+router.post(
+  "/api/material-issuance-item-transfers-p2p/bulk",
+  materialIssuanceItemTransfersP2PController.bulkInsert
+);
+router.put(
+  "/api/material-issuance-item-transfers-p2p/bulk",
+  materialIssuanceItemTransfersP2PController.bulkUpdate
 );
 
 module.exports = router;

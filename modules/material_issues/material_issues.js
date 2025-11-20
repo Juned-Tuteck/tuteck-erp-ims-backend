@@ -10,8 +10,10 @@ const materialIssueController = {
         `SELECT 
                 mi.*, 
                 w.warehouse_name, 
-                w.address 
+                w.address,
+                project.name AS project_name
             FROM ims.t_material_issues mi
+            LEFT JOIN pms.t_project project ON mi.sender_reference_id = project.id
             LEFT JOIN ims.t_warehouse w 
             ON mi.sender_reference_id = w.id
             WHERE mi.is_active = true AND mi.is_deleted = false 
