@@ -203,4 +203,6 @@ router.put(
   materialIssuanceItemTransfersP2PController.bulkUpdate
 );
 
+router.get("/api/material-issues/:id/p2pdetails", materialIssueController.getP2PDetails);
+
 module.exports = router;

@@ -440,6 +440,128 @@ const materialIssueController = {
       client.release();
     }
   },
+
+  // Get material issue details (basic + items + transfers)
+  async getP2PDetails(req, res) {
+    try {
+      const { id } = req.params;
+      if (!id) {
+        return res.status(400).json({
+          success: false,
+          statusCode: 400,
+          data: null,
+          clientMessage: "Material issue id is required",
+          devMessage: "Missing id param",
+        });
+      }
+
+      // 1) Fetch basic material issue row
+      const issueResult = await db.query(
+        `SELECT mi.*,p.name as project_name FROM ims.t_material_issues mi
+        LEFT JOIN pms.t_project p on p.id = mi.sender_reference_id
+        WHERE mi.id = $1 AND mi.is_active = true AND mi.is_deleted = false`,
+        [id]
+      );
+
+      if (issueResult.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          statusCode: 404,
+          data: null,
+          clientMessage: "Material issue not found",
+          devMessage: "No material issue found with the provided ID",
+        });
+      }
+
+      const issue = issueResult.rows[0];
+
+      // 2) Fetch all issuance items for this issue
+      const itemsResult = await db.query(
+        `SELECT i.*
+        FROM ims.t_material_issuance_items_p2p i
+        WHERE i.issuance_id = $1`,
+        [id]
+      );
+
+      const items = itemsResult.rows;
+
+      // If no items, return object with empty item_details array
+      if (items.length === 0) {
+        const response = {
+          "basic_detail": issue,
+          "item_details": [],
+        };
+        return res.status(200).json({
+          success: true,
+          statusCode: 200,
+          data: response,
+          clientMessage: "Material issue details fetched successfully",
+          devMessage: "No issuance items found for this material issue",
+        });
+      }
+
+      // 3) Fetch transfers for all items in a single query to avoid N+1
+      const itemIds = items.map((it) => it.id);
+      const transfersResult = await db.query(
+        `SELECT * FROM ims.t_material_issuance_item_transfers_p2p
+        WHERE issuance_item_id = ANY($1::uuid[])`,
+        [itemIds]
+      );
+
+      const transfers = transfersResult.rows;
+
+      // 4) Group transfers by issuance_item_id
+      const transfersByItem = transfers.reduce((acc, t) => {
+        const key = t.issuance_item_id;
+        if (!acc[key]) acc[key] = [];
+        // parse numeric fields
+        acc[key].push({
+          ...t,
+          transfer_qty:
+            t.transfer_qty !== null ? parseFloat(t.transfer_qty) : null,
+        });
+        return acc;
+      }, {});
+
+      // 5) Attach transfers into items and convert numeric fields
+      const itemsWithTransfers = items.map((it) => {
+        return {
+          ...it,
+          allocated_qty:
+            it.allocated_qty !== null ? parseFloat(it.allocated_qty) : null,
+          total_transferred_qty:
+            it.total_transferred_qty !== null
+              ? parseFloat(it.total_transferred_qty)
+              : null,
+          "item_transfer_details":
+            transfersByItem[it.id] || [],
+        };
+      });
+
+      // 6) Build final response shape
+      const response = {
+        "basic_detail": issue,
+        "item_details": itemsWithTransfers,
+      };
+
+      return res.status(200).json({
+        success: true,
+        statusCode: 200,
+        data: response,
+        clientMessage: "Material issue details fetched successfully",
+        devMessage:
+          "Fetched material issue, its issuance items (p2p) and their transfers (p2p)",
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        statusCode: 500,
+        data: null,
+        clientMessage: "Something went wrong, please try again later",
+        devMessage: error.message,
+      });
+    }
+  },
 };
 
 module.exports = materialIssueController;
