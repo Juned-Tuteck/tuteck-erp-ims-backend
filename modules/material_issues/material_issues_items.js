@@ -217,7 +217,8 @@ const materialIssueItemsController = {
           rate,
           item_allocation_id,
           receiver_type,
-          allocations
+          allocations,
+          spec_id
         } = item;
 
         const inventory_id = JSON.stringify(allocations);
@@ -232,8 +233,8 @@ const materialIssueItemsController = {
           // Update the existing item
           const updateResult = await client.query(
             `UPDATE ims.t_material_issue_items 
-             SET issue_id = $1, issued_quantity = $2, bom_id = $3, receiving_reference_id = $4, rate = $5, item_allocation_id = $6, receiver_type = $7, updated_at = now(), updated_by = $8 
-             WHERE inventory_id = $9 AND item_id = $10 AND is_active = true AND is_deleted = false RETURNING *`,
+             SET issue_id = $1, issued_quantity = $2, bom_id = $3, receiving_reference_id = $4, rate = $5, item_allocation_id = $6, receiver_type = $7, spec_id = $8, updated_at = now(), updated_by = $9 
+             WHERE inventory_id = $10 AND item_id = $11 AND is_active = true AND is_deleted = false RETURNING *`,
             [
               issue_id,
               issued_quantity,
@@ -242,14 +243,15 @@ const materialIssueItemsController = {
               rate,
               item_allocation_id,
               receiver_type,
+              spec_id,
               CREATED_BY,
               inventory_id,
               item_id,
             ]
           );
-            processedData.push(updateResult.rows[0]);
-          } else {
-            for (const allocation of allocations) {
+          processedData.push(updateResult.rows[0]);
+        } else {
+          for (const allocation of allocations) {
             const { inventory_id, allocated_qty } = allocation;
             await client.query(
               `UPDATE ims.t_inventory 
@@ -257,11 +259,11 @@ const materialIssueItemsController = {
                WHERE id = $2 AND quantity >= $1`,
               [allocated_qty, inventory_id]
             );
-            }
+          }
           // Insert a new item
           const insertResult = await client.query(
-            `INSERT INTO ims.t_material_issue_items (issue_id, inventory_id, item_id, issued_quantity, bom_id, receiving_reference_id, rate, item_allocation_id, receiver_type, created_by) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+            `INSERT INTO ims.t_material_issue_items (issue_id, inventory_id, item_id, issued_quantity, bom_id, receiving_reference_id, rate, item_allocation_id, receiver_type, spec_id, created_by) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
             [
               issue_id,
               inventory_id,
@@ -272,6 +274,7 @@ const materialIssueItemsController = {
               rate,
               item_allocation_id,
               receiver_type,
+              spec_id,
               CREATED_BY,
             ]
           );

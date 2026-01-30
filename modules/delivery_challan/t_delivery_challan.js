@@ -14,10 +14,11 @@ router.get("/", async (req, res) => {
   }
 });
 
-// Get delivery challan by ID
+// Get delivery challan by ID (supports all transfer types)
 router.get("/:id", async (req, res) => {
   try {
     const { id } = req.params;
+
     // Get delivery challan
     const dcResult = await db.query(
       "SELECT * FROM ims.t_delivery_challan WHERE id = $1 AND is_deleted = false",
@@ -28,130 +29,275 @@ router.get("/:id", async (req, res) => {
     }
     const dc = dcResult.rows[0];
 
-    // Get sender warehouse details from t_material_issues using transfer_id
-    let senderWarehouse = null;
-    let senderMaterialIssue = null;
-    if (dc.transfer_id) {
-      const senderMIResult = await db.query(
-        `SELECT mi.*, w.*
-         FROM ims.t_material_issues mi
-         LEFT JOIN ims.t_warehouse w ON mi.sender_reference_id = w.id
-         WHERE mi.id = $1 AND mi.is_deleted = false`,
-        [dc.transfer_id]
-      );
-      if (senderMIResult.rows.length > 0) {
-        senderMaterialIssue = senderMIResult.rows[0];
-        senderWarehouse = {
-          warehouse_id: senderMaterialIssue.sender_reference_id,
-          warehouse_code: senderMaterialIssue.warehouse_code,
-          warehouse_name: senderMaterialIssue.warehouse_name,
-          address: senderMaterialIssue.address,
-        };
-      }
+    if (!dc.transfer_id) {
+      return res.json({
+        delivery_challan: dc,
+        sender: null,
+        items: [],
+      });
     }
 
-    // Get receiver warehouse details from t_material_issue_items using transfer_id
-    let receiverWarehouse = null;
-    let receiverMaterialIssueItem = null;
-    let itemDetails = [];
-    if (dc.transfer_id) {
-      const receiverMIItemResult = await db.query(
-        `SELECT mii.*, w.*, i.item_code, i.item_name
+    // First, get the material issue to check issuance_type
+    const materialIssueResult = await db.query(
+      `SELECT * FROM ims.t_material_issues WHERE id = $1 AND is_deleted = false`,
+      [dc.transfer_id]
+    );
+
+    if (materialIssueResult.rows.length === 0) {
+      return res.json({
+        delivery_challan: dc,
+        sender: null,
+        items: [],
+      });
+    }
+
+    const materialIssue = materialIssueResult.rows[0];
+    const issuanceType = materialIssue.issuance_type;
+
+    // ========== HANDLE DIFFERENT ISSUANCE TYPES ==========
+
+    if (issuanceType === 'project-project') {
+      // ========== PROJECT-TO-PROJECT TRANSFER ==========
+
+      // Get sender project details
+      const senderResult = await db.query(
+        `SELECT p.id, p.name as project_name, p.project_address
+         FROM pms.t_project p
+         WHERE p.id = $1`,
+        [materialIssue.sender_reference_id]
+      );
+
+      const sender = senderResult.rows.length > 0 ? {
+        id: senderResult.rows[0].id,
+        name: senderResult.rows[0].project_name,
+        address: senderResult.rows[0].project_address,
+        type: 'project'
+      } : null;
+
+      // Get P2P items with transfer details
+      const p2pItemsResult = await db.query(
+        `SELECT p2p.*, 
+                i.item_name, i.item_code, i.hsn_code, u.uom_name,
+                sb.name as sending_bom_name,
+                ss.spec_description as sending_spec_name
+         FROM ims.t_material_issuance_items_p2p p2p
+         LEFT JOIN ims.t_item i ON CAST(p2p.item_id AS UUID) = i.id
+         LEFT JOIN ims.t_uom u ON i.uom_id = u.id
+         LEFT JOIN crm.t_bom sb ON CAST(p2p.sending_bom_id AS UUID) = sb.id
+         LEFT JOIN crm.t_bom_spec ss ON CAST(p2p.sending_spec_id AS UUID) = ss.id
+         WHERE p2p.issuance_id = $1`,
+        [dc.transfer_id]
+      );
+
+      // For each P2P item, get its transfer details (receivers)
+      const itemsWithTransfers = await Promise.all(
+        p2pItemsResult.rows.map(async (item) => {
+          const transfersResult = await db.query(
+            `SELECT t.*, 
+                    rb.name as receiving_bom_name,
+                    rp.name as receiver_project_name,
+                    rs.spec_description as receiving_spec_name
+             FROM ims.t_material_issuance_item_transfers_p2p t
+             LEFT JOIN crm.t_bom rb ON CAST(t.receiving_bom_id AS UUID) = rb.id
+             LEFT JOIN pms.t_project rp ON rb.project_id = rp.id
+             LEFT JOIN crm.t_bom_spec rs ON CAST(t.receiving_spec_id AS UUID) = rs.id
+             WHERE t.issuance_item_id = $1`,
+            [item.id]
+          );
+
+          return {
+            id: item.id,
+            issue_id: item.issuance_id,
+            item_id: item.item_id,
+            allocated_qty: parseFloat(item.allocated_qty || 0),
+            total_transferred_qty: parseFloat(item.total_transferred_qty || 0),
+            sending_bom_id: item.sending_bom_id,
+            sending_bom_name: item.sending_bom_name,
+            sending_spec_id: item.sending_spec_id,
+            sending_spec_name: item.sending_spec_name,
+            created_at: item.created_at,
+            created_by: item.created_by,
+            updated_at: item.updated_at,
+            updated_by: item.updated_by,
+            is_deleted: item.is_deleted,
+            is_active: item.is_active,
+            item_details: {
+              id: item.item_id,
+              item_code: item.item_code,
+              item_name: item.item_name,
+              hsn_code: item.hsn_code,
+              uom_name: item.uom_name,
+            },
+            transfers: transfersResult.rows.map(t => ({
+              id: t.id,
+              transfer_qty: parseFloat(t.transfer_qty || 0),
+              receiver_type: 'project',
+              receiver_project_name: t.receiver_project_name,
+              receiving_bom_id: t.receiving_bom_id,
+              receiving_bom_name: t.receiving_bom_name,
+              receiving_spec_id: t.receiving_spec_id,
+              receiving_spec_name: t.receiving_spec_name,
+            }))
+          };
+        })
+      );
+
+      res.json({
+        delivery_challan: dc,
+        sender: sender,
+        items: itemsWithTransfers,
+      });
+
+    } else if (issuanceType === 'project-warehouse') {
+      // ========== PROJECT-TO-WAREHOUSE TRANSFER ==========
+
+      // Get sender project details
+      const senderResult = await db.query(
+        `SELECT p.id, p.name as project_name, p.project_address as address
+         FROM pms.t_project p
+         WHERE p.id = $1`,
+        [materialIssue.sender_reference_id]
+      );
+
+      const sender = senderResult.rows.length > 0 ? {
+        id: senderResult.rows[0].id,
+        name: senderResult.rows[0].project_name,
+        address: senderResult.rows[0].address,
+        type: 'project'
+      } : null;
+
+      // Get items with receiver warehouse details
+      const itemsResult = await db.query(
+        `SELECT mii.*, 
+                rw.id as receiver_warehouse_id,
+                rw.warehouse_code as receiver_warehouse_code,
+                rw.warehouse_name as receiver_warehouse_name, 
+                rw.address as receiver_warehouse_address,
+                i.item_name, i.item_code, i.hsn_code, u.uom_name, 
+                b.name as bom_name,
+                bs.spec_description as spec_name
          FROM ims.t_material_issue_items mii
-         LEFT JOIN ims.t_warehouse w ON mii.receiving_reference_id = w.id
+         LEFT JOIN ims.t_warehouse rw ON mii.receiving_reference_id = rw.id
          LEFT JOIN ims.t_item i ON mii.item_id = i.id
+         LEFT JOIN ims.t_uom u ON i.uom_id = u.id
+         LEFT JOIN crm.t_bom b ON mii.bom_id = b.id
+         LEFT JOIN crm.t_bom_spec bs ON mii.spec_id = bs.id
          WHERE mii.issue_id = $1 AND mii.is_deleted = false`,
         [dc.transfer_id]
       );
-      console.log("receiverMIItemResult:", receiverMIItemResult.rows);
-      if (receiverMIItemResult.rows.length > 0) {
-        receiverMaterialIssueItem = receiverMIItemResult.rows[0];
-        receiverWarehouse = {
-          warehouse_id: receiverMaterialIssueItem.receiving_reference_id,
-          warehouse_code: receiverMaterialIssueItem.warehouse_code,
-          warehouse_name: receiverMaterialIssueItem.warehouse_name,
-          address: receiverMaterialIssueItem.address,
-        };
-        itemDetails = receiverMIItemResult.rows.map((row) => ({
-          id: row.id,
-          issue_id: row.issue_id,
-          inventory_id: row.inventory_id,
-          item_id: row.item_id,
-          issued_quantity: row.issued_quantity,
-          rate: row.rate,
-          created_at: row.created_at,
-          created_by: row.created_by,
-          updated_at: row.updated_at,
-          updated_by: row.updated_by,
-          is_deleted: row.is_deleted,
-          is_active: row.is_active,
-          crm_bom_id: row.crm_bom_id,
-          receiving_reference_id: row.receiving_reference_id,
-          sender_warehouse: {
-            warehouse_id: row.sender_reference_id,
-            warehouse_code: row.sender_warehouse_code,
-            warehouse_name: row.sender_warehouse_name,
-            address: row.sender_warehouse_address,
-          },
-          receiver_warehouse: {
-            warehouse_id: row.receiving_reference_id,
-            warehouse_code: row.warehouse_code,
-            warehouse_name: row.warehouse_name,
-            address: row.address,
-          },
-          item_details: {
-            id: row.item_id,
-            item_code: row.item_code,
-            item_name: row.item_name,
-            rate: row.rate,
-            hsn_code: row.hsn_code,
-            description: row.description,
-            safety_stock: row.safety_stock,
-            reorder_quantity: row.reorder_quantity,
-            latest_lowest_basic_supply_rate:
-              row.latest_lowest_basic_supply_rate,
-            latest_lowest_basic_installation_rate:
-              row.latest_lowest_basic_installation_rate,
-            latest_lowest_net_rate: row.latest_lowest_net_rate,
-            dimensions: row.dimensions,
-            parent_item_id: row.parent_item_id,
-            material_type: row.material_type,
-            category_id: row.category_id,
-            brand_id: row.brand_id,
-            uom_id: row.uom_id,
-            installation_rate: row.installation_rate,
-            unit_price: row.unit_price,
-            uom_value: row.uom_value,
-            is_capital_item: row.is_capital_item,
-            is_scrap_item: row.is_scrap_item,
-            insurance_number: row.insurance_number,
-            insurance_provider: row.insurance_provider,
-            insurance_type: row.insurance_type,
-            insurance_renewal_frequency: row.insurance_renewal_frequency,
-            insurance_start_date: row.insurance_start_date,
-            insurance_end_date: row.insurance_end_date,
-            insurance_premium_amount: row.insurance_premium_amount,
-            insurance_claim_amount: row.insurance_claim_amount,
-            insurance_status: row.insurance_status,
-            created_at: row.created_at,
-            created_by: row.created_by,
-            updated_at: row.updated_at,
-            updated_by: row.updated_by,
-            is_deleted: row.is_deleted,
-            is_active: row.is_active,
-            uom_name: row.uom_name,
-          },
-        }));
-      }
+
+      const items = itemsResult.rows.map(row => ({
+        id: row.id,
+        issue_id: row.issue_id,
+        item_id: row.item_id,
+        issued_quantity: parseFloat(row.issued_quantity || 0),
+        rate: parseFloat(row.rate || 0),
+        bom_id: row.bom_id,
+        bom_name: row.bom_name,
+        spec_id: row.spec_id,
+        spec_name: row.spec_name,
+        created_at: row.created_at,
+        created_by: row.created_by,
+        updated_at: row.updated_at,
+        updated_by: row.updated_by,
+        is_deleted: row.is_deleted,
+        is_active: row.is_active,
+        receiver_warehouse: {
+          warehouse_id: row.receiver_warehouse_id,
+          warehouse_code: row.receiver_warehouse_code,
+          warehouse_name: row.receiver_warehouse_name,
+          address: row.receiver_warehouse_address,
+        },
+        item_details: {
+          id: row.item_id,
+          item_code: row.item_code,
+          item_name: row.item_name,
+          hsn_code: row.hsn_code,
+          uom_name: row.uom_name,
+        },
+      }));
+
+      res.json({
+        delivery_challan: dc,
+        sender: sender,
+        items: items,
+      });
+
+    } else {
+      // ========== WAREHOUSE-TO-WAREHOUSE TRANSFER (default) ==========
+
+      // Get sender warehouse details
+      const senderResult = await db.query(
+        `SELECT w.id, w.warehouse_code, w.warehouse_name, w.address
+         FROM ims.t_warehouse w
+         WHERE w.id = $1`,
+        [materialIssue.sender_reference_id]
+      );
+
+      const sender = senderResult.rows.length > 0 ? {
+        warehouse_id: senderResult.rows[0].id,
+        warehouse_code: senderResult.rows[0].warehouse_code,
+        warehouse_name: senderResult.rows[0].warehouse_name,
+        address: senderResult.rows[0].address,
+        type: 'warehouse'
+      } : null;
+
+      // Get items with receiver warehouse details
+      const itemsResult = await db.query(
+        `SELECT mii.*, 
+                rw.id as receiver_warehouse_id,
+                rw.warehouse_code as receiver_warehouse_code,
+                rw.warehouse_name as receiver_warehouse_name,
+                rw.address as receiver_warehouse_address,
+                i.item_code, i.item_name, i.hsn_code, u.uom_name,
+                b.name as bom_name
+         FROM ims.t_material_issue_items mii
+         LEFT JOIN ims.t_warehouse rw ON mii.receiving_reference_id = rw.id
+         LEFT JOIN ims.t_item i ON mii.item_id = i.id
+         LEFT JOIN ims.t_uom u ON i.uom_id = u.id
+         LEFT JOIN crm.t_bom b ON mii.bom_id = b.id
+         WHERE mii.issue_id = $1 AND mii.is_deleted = false`,
+        [dc.transfer_id]
+      );
+
+      const items = itemsResult.rows.map(row => ({
+        id: row.id,
+        issue_id: row.issue_id,
+        inventory_id: row.inventory_id,
+        item_id: row.item_id,
+        issued_quantity: parseFloat(row.issued_quantity || 0),
+        rate: parseFloat(row.rate || 0),
+        created_at: row.created_at,
+        created_by: row.created_by,
+        updated_at: row.updated_at,
+        updated_by: row.updated_by,
+        is_deleted: row.is_deleted,
+        is_active: row.is_active,
+        receiving_reference_id: row.receiving_reference_id,
+        receiver_warehouse: {
+          warehouse_id: row.receiver_warehouse_id,
+          warehouse_code: row.receiver_warehouse_code,
+          warehouse_name: row.receiver_warehouse_name,
+          address: row.receiver_warehouse_address,
+        },
+        item_details: {
+          id: row.item_id,
+          item_code: row.item_code,
+          item_name: row.item_name,
+          hsn_code: row.hsn_code,
+          uom_name: row.uom_name,
+        },
+      }));
+
+      res.json({
+        delivery_challan: dc,
+        sender_warehouse: sender,
+        items: items,
+      });
     }
 
-    res.json({
-      delivery_challan: dc,
-      sender_warehouse: senderWarehouse,
-      //   receiver_warehouse: receiverWarehouse,
-      items: itemDetails,
-    });
   } catch (err) {
+    console.error('Error in GET /delivery-challan/:id:', err);
     res.status(500).json({ error: err.message });
   }
 });
