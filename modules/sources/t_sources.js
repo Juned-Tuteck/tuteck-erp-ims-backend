@@ -12,18 +12,31 @@ router.get("/", async (req, res) => {
         COALESCE(json_agg(json_build_object('warehouse_id', iw.warehouse_id, 'warehouse_name', w.warehouse_name)) FILTER (WHERE iw.warehouse_id IS NOT NULL), '[]') AS warehouses,
         sw.warehouse_code AS sender_warehouse_code,
         sw.warehouse_name AS sender_warehouse_name,
-        sw.address AS sender_warehouse_address
+        sw.address AS sender_warehouse_address,
+        sp.name AS sender_project_name,
+        sp.project_address AS sender_project_address,
+        rw.warehouse_name AS receiver_warehouse_name,
+        rw.address AS receiver_warehouse_address,
+        rp.name AS receiver_project_name,
+        rp.project_address AS receiver_project_address,
+        COALESCE(sw.warehouse_name, sp.name) AS sender_name,
+        COALESCE(sw.address, sp.project_address) AS sender_address,
+        COALESCE(rw.warehouse_name, rp.name) AS receiver_name,
+        COALESCE(rw.address, rp.project_address) AS receiver_address
       FROM ims.t_source s
       LEFT JOIN ims.t_source_item_warehouse_details iw ON s.id = iw.source_id AND iw.is_deleted = false
       LEFT JOIN ims.t_warehouse w ON iw.warehouse_id = w.id
       LEFT JOIN ims.t_warehouse sw ON s.sender_warehouse_id = sw.id
+      LEFT JOIN pms.t_project sp ON s.sender_project_id = sp.id
+      LEFT JOIN ims.t_warehouse rw ON s.receiver_warehouse_id = rw.id
+      LEFT JOIN pms.t_project rp ON s.receiver_project_id = rp.id
       WHERE s.is_deleted = false`;
     const params = [];
     if (source_type) {
       query += ` AND s.source_type = $1`;
       params.push(source_type);
     }
-    query += ` GROUP BY s.id, sw.warehouse_code, sw.warehouse_name, sw.address`;
+    query += ` GROUP BY s.id, sw.warehouse_code, sw.warehouse_name, sw.address, sp.name, sp.project_address, rw.warehouse_name, rw.address, rp.name, rp.project_address`;
     const result = await db.query(query, params);
     res.json(result.rows);
   } catch (err) {

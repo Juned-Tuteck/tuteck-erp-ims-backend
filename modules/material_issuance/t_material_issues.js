@@ -72,7 +72,7 @@ router.get("/:id", async (req, res) => {
                     rs.spec_description as receiving_spec_name
              FROM ims.t_material_issuance_item_transfers_p2p t
              LEFT JOIN crm.t_bom rb ON t.receiving_bom_id = CAST(rb.id AS TEXT)
-             LEFT JOIN pms.t_project rp ON t.receiving_bom_id = CAST(rp.id AS TEXT)
+             LEFT JOIN pms.t_project rp ON t.receiving_project_id = rp.id 
              LEFT JOIN crm.t_bom_spec rs ON t.receiving_spec_id = CAST(rs.id AS TEXT)
              WHERE t.issuance_item_id = $1`,
             [item.id]
@@ -87,6 +87,7 @@ router.get("/:id", async (req, res) => {
               transfer_qty: parseFloat(t.transfer_qty),
               receiver_type: 'project',
               receiver_name: t.receiver_name,
+              receiving_project_id: t.receiving_project_id,
               receiving_bom_id: t.receiving_bom_id,
               receiving_bom_name: t.receiving_bom_name,
               receiving_spec_id: t.receiving_spec_id,
