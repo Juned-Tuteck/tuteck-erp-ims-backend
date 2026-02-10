@@ -29,6 +29,8 @@ const materialIssuanceItemsP2PController = require("../modules/material_issues/m
 const materialIssuanceItemTransfersP2PController = require("../modules/material_issues/material_issues_items_transfer_p2p");
 //user access
 const userAccessController = require("../modules/user-access/user_access");
+// Item Track APIs
+const itemTrackController = require("../modules/item_track/item_track");
 
 router.use("/api/user-access", userAccessController);
 
@@ -113,6 +115,7 @@ router.use("/api/inventory", tInventoryController);
 router.use("/api/delivery-challan", tDeliveryChallanRouter);
 router.use("/api/material_issues", tMaterialIssuesRouter);
 router.use("/api/item-allocation", tItemAllocationRouter);
+router.use("/api/item-track", itemTrackController);
 
 // Allocation routes
 router.get("/api/allocation", allocationController.getAll);

@@ -57,18 +57,20 @@ const materialIssuanceItemTransfersP2PController = {
           receiving_bom_id,
           receiving_spec_id,
           transfer_qty,
+          receiving_project_id,
         } = item;
 
         const resultInsert = await client.query(
           `INSERT INTO ims.t_material_issuance_item_transfers_p2p
-          (issuance_item_id, receiving_bom_id, receiving_spec_id, transfer_qty, created_by)
-          VALUES ($1, $2, $3, $4, $5)
+          (issuance_item_id, receiving_bom_id, receiving_spec_id, transfer_qty, receiving_project_id, created_by)
+          VALUES ($1, $2, $3, $4, $5, $6)
           RETURNING *`,
           [
             issuance_item_id,
             receiving_bom_id,
             receiving_spec_id,
             transfer_qty,
+            receiving_project_id || null,
             CREATED_BY,
           ]
         );

@@ -122,12 +122,12 @@ const allocationController = {
   // Create allocation
   async create(req, res) {
     try {
-      const { item_id, bom_id, item_name, required_qty, allocated_qty, rate } =
+      const { item_id, bom_id, item_name, required_qty, allocated_qty, rate, project_id } =
         req.body;
 
       const result = await db.query(
-        `INSERT INTO ims.t_item_allocation (item_id, bom_id, item_name, required_qty, allocated_qty, rate, created_by) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        `INSERT INTO ims.t_item_allocation (item_id, bom_id, item_name, required_qty, allocated_qty, rate, created_by, project_id) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
         [
           item_id,
           bom_id,
@@ -136,6 +136,7 @@ const allocationController = {
           allocated_qty,
           rate,
           CREATED_BY,
+          project_id,
         ]
       );
 
@@ -278,22 +279,36 @@ const allocationController = {
           required_qty,
           allocated_qty,
           rate,
+          project_id,
         } = allocation;
 
-        // Check if the allocation already exists
-        const existingAllocation = await client.query(
-          `SELECT id FROM ims.t_item_allocation WHERE item_id = $1 AND bom_id = $2 AND is_active = true AND is_deleted = false`,
-          [item_id, bom_id]
-        );
+        let existingAllocation;
+        if (project_id) {
+          // Check if the allocation already exists with project_id
+          existingAllocation = await client.query(
+            `SELECT id FROM ims.t_item_allocation WHERE item_id = $1 AND bom_id = $2 AND project_id = $3 AND is_active = true AND is_deleted = false`,
+            [item_id, bom_id, project_id]
+          );
+        } else {
+          // Check if the allocation already exists without project_id
+          existingAllocation = await client.query(
+            `SELECT id FROM ims.t_item_allocation WHERE item_id = $1 AND bom_id = $2 AND project_id IS NULL AND is_active = true AND is_deleted = false`,
+            [item_id, bom_id]
+          );
+        }
+
         console.log("Existing Allocation:", existingAllocation.rows);
 
         if (existingAllocation.rows.length > 0) {
-          // Update the existing allocation
-          const updateResult = await client.query(
-            `UPDATE ims.t_item_allocation 
-             SET item_name = $1, required_qty = $2, allocated_qty = $3, rate = $4, updated_at = now(), updated_by = $5 
-             WHERE item_id = $6 AND bom_id = $7 AND is_active = true AND is_deleted = false RETURNING *`,
-            [
+          // Update the existing allocation by adding quantities
+          let updateQuery = "";
+          let updateParams = [];
+
+          if (project_id) {
+            updateQuery = `UPDATE ims.t_item_allocation 
+             SET item_name = $1, required_qty = required_qty + $2, allocated_qty = allocated_qty + $3, rate = $4, updated_at = now(), updated_by = $5 
+             WHERE item_id = $6 AND bom_id = $7 AND project_id = $8 AND is_active = true AND is_deleted = false RETURNING *`;
+            updateParams = [
               item_name,
               required_qty,
               allocated_qty,
@@ -301,14 +316,30 @@ const allocationController = {
               CREATED_BY,
               item_id,
               bom_id,
-            ]
-          );
+              project_id,
+            ];
+          } else {
+            updateQuery = `UPDATE ims.t_item_allocation 
+             SET item_name = $1, required_qty = required_qty + $2, allocated_qty = allocated_qty + $3, rate = $4, updated_at = now(), updated_by = $5 
+             WHERE item_id = $6 AND bom_id = $7 AND project_id IS NULL AND is_active = true AND is_deleted = false RETURNING *`;
+            updateParams = [
+              item_name,
+              required_qty,
+              allocated_qty,
+              rate,
+              CREATED_BY,
+              item_id,
+              bom_id,
+            ];
+          }
+
+          const updateResult = await client.query(updateQuery, updateParams);
           processedData.push(updateResult.rows[0]);
         } else {
           // Insert a new allocation
           const insertResult = await client.query(
-            `INSERT INTO ims.t_item_allocation (item_id, bom_id, item_name, required_qty, allocated_qty, rate, created_by) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+            `INSERT INTO ims.t_item_allocation (item_id, bom_id, item_name, required_qty, allocated_qty, rate, created_by, project_id) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
             [
               item_id,
               bom_id,
@@ -317,6 +348,7 @@ const allocationController = {
               allocated_qty,
               rate,
               CREATED_BY,
+              project_id || null,
             ]
           );
           processedData.push(insertResult.rows[0]);

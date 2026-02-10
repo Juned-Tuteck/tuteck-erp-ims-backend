@@ -30,10 +30,11 @@ router.get("/:source_id", async (req, res) => {
     // For each item in source_details, get its warehouse details
     const itemIds = sourceDetailsResult.rows.map((row) => row.item_id);
     let itemWarehouseMap = {};
+    let itemProjectMap = {};
     if (itemIds.length > 0) {
       // Get warehouse details for each item_id in this source
       const itemWarehouseResult = await db.query(
-        `SELECT siwd.item_id, siwd.warehouse_id, w.*
+        `SELECT siwd.item_id, siwd.warehouse_id, siwd.sender_bom_id, siwd.accepted_quantity, siwd.expected_quantity, w.*
          FROM ims.t_source_item_warehouse_details siwd
          LEFT JOIN ims.t_warehouse w ON siwd.warehouse_id = w.id
          WHERE siwd.source_id = $1 AND siwd.is_deleted = false AND w.is_deleted = false`,
@@ -43,6 +44,21 @@ router.get("/:source_id", async (req, res) => {
       itemWarehouseResult.rows.forEach((row) => {
         if (!itemWarehouseMap[row.item_id]) itemWarehouseMap[row.item_id] = [];
         itemWarehouseMap[row.item_id].push(row);
+      });
+
+      // Get project details for each item_id in this source (for P-P transfer)
+      const itemProjectResult = await db.query(
+        `SELECT siwd.item_id, siwd.project_id, siwd.spec_id, bs.spec_description as spec_name, siwd.accepted_quantity, siwd.expected_quantity, siwd.sender_bom_id,siwd.receiver_bom_id, p.*
+         FROM ims.t_source_item_warehouse_details siwd
+         JOIN pms.t_project p ON siwd.project_id = p.id
+         LEFT JOIN crm.t_bom_spec bs ON siwd.spec_id = bs.id
+         WHERE siwd.source_id = $1 AND siwd.is_deleted = false AND p.is_deleted = false`,
+        [source_id]
+      );
+      // Group projects by item_id
+      itemProjectResult.rows.forEach((row) => {
+        if (!itemProjectMap[row.item_id]) itemProjectMap[row.item_id] = [];
+        itemProjectMap[row.item_id].push(row);
       });
     }
 
@@ -54,6 +70,7 @@ router.get("/:source_id", async (req, res) => {
       (item) => ({
         ...item,
         warehouses: itemWarehouseMap[item.item_id] || [],
+        projects: itemProjectMap[item.item_id] || [],
       })
     );
 

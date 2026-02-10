@@ -74,17 +74,22 @@ router.get("/:id", async (req, res) => {
         type: 'project'
       } : null;
 
-      // Get P2P items with transfer details
+      // Get P2P items with transfer details and item rate
       const p2pItemsResult = await db.query(
         `SELECT p2p.*, 
                 i.item_name, i.item_code, i.hsn_code, u.uom_name,
                 sb.name as sending_bom_name,
-                ss.spec_description as sending_spec_name
+                ss.spec_description as sending_spec_name,
+                ia.rate as item_rate
          FROM ims.t_material_issuance_items_p2p p2p
          LEFT JOIN ims.t_item i ON CAST(p2p.item_id AS UUID) = i.id
          LEFT JOIN ims.t_uom u ON i.uom_id = u.id
          LEFT JOIN crm.t_bom sb ON CAST(p2p.sending_bom_id AS UUID) = sb.id
          LEFT JOIN crm.t_bom_spec ss ON CAST(p2p.sending_spec_id AS UUID) = ss.id
+         LEFT JOIN ims.t_item_allocation ia ON CAST(p2p.item_id AS UUID) = ia.item_id 
+                                            AND CAST(p2p.sending_bom_id AS UUID) = ia.bom_id
+                                            AND ia.is_active = true 
+                                            AND ia.is_deleted = false
          WHERE p2p.issuance_id = $1`,
         [dc.transfer_id]
       );
@@ -99,7 +104,7 @@ router.get("/:id", async (req, res) => {
                     rs.spec_description as receiving_spec_name
              FROM ims.t_material_issuance_item_transfers_p2p t
              LEFT JOIN crm.t_bom rb ON CAST(t.receiving_bom_id AS UUID) = rb.id
-             LEFT JOIN pms.t_project rp ON rb.project_id = rp.id
+             LEFT JOIN pms.t_project rp ON t.receiving_project_id = rp.id
              LEFT JOIN crm.t_bom_spec rs ON CAST(t.receiving_spec_id AS UUID) = rs.id
              WHERE t.issuance_item_id = $1`,
             [item.id]
@@ -111,6 +116,7 @@ router.get("/:id", async (req, res) => {
             item_id: item.item_id,
             allocated_qty: parseFloat(item.allocated_qty || 0),
             total_transferred_qty: parseFloat(item.total_transferred_qty || 0),
+            rate: parseFloat(item.item_rate || 0),
             sending_bom_id: item.sending_bom_id,
             sending_bom_name: item.sending_bom_name,
             sending_spec_id: item.sending_spec_id,
@@ -133,6 +139,7 @@ router.get("/:id", async (req, res) => {
               transfer_qty: parseFloat(t.transfer_qty || 0),
               receiver_type: 'project',
               receiver_project_name: t.receiver_project_name,
+              receiving_project_id: t.receiving_project_id,
               receiving_bom_id: t.receiving_bom_id,
               receiving_bom_name: t.receiving_bom_name,
               receiving_spec_id: t.receiving_spec_id,

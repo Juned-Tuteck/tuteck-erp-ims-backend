@@ -39,7 +39,7 @@ router.post("/", async (req, res) => {
   try {
     const body = req.body;
     const result = await db.query(
-      `INSERT INTO ims.t_source_item_warehouse_details (source_id, source_detail_id, item_id, warehouse_id, accepted_quantity, rejected_quantity, lost_quantity, note, created_by, expected_quantity) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      `INSERT INTO ims.t_source_item_warehouse_details (source_id, source_detail_id, item_id, warehouse_id, accepted_quantity, rejected_quantity, lost_quantity, note, created_by, expected_quantity, project_id, spec_id, sender_bom_id, receiver_bom_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
       [
         body.source_id,
         body.source_detail_id,
@@ -51,6 +51,10 @@ router.post("/", async (req, res) => {
         body.note,
         body.created_by,
         body.expected_quantity,
+        body.project_id,
+        body.spec_id,
+        body.sender_bom_id,
+        body.receiver_bom_id,
       ]
     );
     res.status(201).json(result.rows[0]);
@@ -72,13 +76,10 @@ router.post("/bulk", async (req, res) => {
     const placeholders = [];
     items.forEach((body, idx) => {
       placeholders.push(
-        `($${idx * 12 + 1},$${idx * 12 + 2},$${idx * 12 + 3},$${
-          idx * 12 + 4
-        },$${idx * 12 + 5},$${idx * 12 + 6},$${idx * 12 + 7},$${
-          idx * 12 + 8
-        },$${idx * 12 + 9},$${idx * 12 + 10},$${idx * 12 + 11},$${
-          idx * 12 + 12
-        })`
+        `($${idx * 16 + 1},$${idx * 16 + 2},$${idx * 16 + 3},$${idx * 16 + 4
+        },$${idx * 16 + 5},$${idx * 16 + 6},$${idx * 16 + 7},$${idx * 16 + 8
+        },$${idx * 16 + 9},$${idx * 16 + 10},$${idx * 16 + 11},$${idx * 16 + 12
+        },$${idx * 16 + 13},$${idx * 16 + 14},$${idx * 16 + 15},$${idx * 16 + 16})`
       );
       values.push(
         body.source_id,
@@ -92,11 +93,15 @@ router.post("/bulk", async (req, res) => {
         body.created_by || null,
         body.expected_quantity || null,
         body.is_deleted === undefined ? false : body.is_deleted,
-        body.is_active === undefined ? true : body.is_active
+        body.is_active === undefined ? true : body.is_active,
+        body.project_id || null,
+        body.spec_id || null,
+        body.sender_bom_id || null,
+        body.receiver_bom_id || null
       );
     });
     const query = `INSERT INTO ims.t_source_item_warehouse_details (
-      source_id, source_detail_id, item_id, warehouse_id, accepted_quantity, rejected_quantity, lost_quantity, note, created_by, expected_quantity, is_deleted, is_active
+      source_id, source_detail_id, item_id, warehouse_id, accepted_quantity, rejected_quantity, lost_quantity, note, created_by, expected_quantity, is_deleted, is_active, project_id, spec_id, sender_bom_id, receiver_bom_id
     ) VALUES ${placeholders.join(", ")} RETURNING *`;
     const result = await db.query(query, values);
     res.status(201).json(result.rows);
@@ -108,29 +113,50 @@ router.post("/bulk", async (req, res) => {
 // PUT update item warehouse detail
 router.put("/:id", async (req, res) => {
   try {
-    // Expect source_id, source_detail_id, warehouse_id in body
-    const { source_id, source_detail_id, warehouse_id } = req.body;
-    if (!source_id || !source_detail_id || !warehouse_id) {
+    // Expect source_id, source_detail_id, and either warehouse_id or project_id in body
+    const { source_id, source_detail_id, warehouse_id, project_id, spec_id } =
+      req.body;
+    if (!source_id || !source_detail_id || (!warehouse_id && !project_id)) {
       return res
         .status(400)
         .json({
-          error: "source_id, source_detail_id, and warehouse_id are required",
+          error:
+            "source_id, source_detail_id, and either warehouse_id or project_id are required",
         });
     }
-    const result = await db.query(
-      `UPDATE ims.t_source_item_warehouse_details SET accepted_quantity=$1, rejected_quantity=$2, lost_quantity=$3, note=$4, updated_by=$5, updated_at=now()
-       WHERE source_id=$6 AND source_detail_id=$7 AND warehouse_id=$8 RETURNING *`,
-      [
-        req.body.accepted_quantity,
-        req.body.rejected_quantity,
-        req.body.lost_quantity,
-        req.body.note,
-        req.body.updated_by,
-        source_id,
-        source_detail_id,
-        warehouse_id,
-      ]
-    );
+
+    let query = "";
+    let params = [
+      req.body.accepted_quantity,
+      req.body.rejected_quantity,
+      req.body.lost_quantity,
+      req.body.note,
+      req.body.updated_by,
+      source_id,
+      source_detail_id,
+    ];
+
+    if (project_id) {
+      // Add bom_ids to params
+      params.splice(5, 0, req.body.sender_bom_id, req.body.receiver_bom_id); // inserted before source_id (which is index 5 initially)
+      // New order: accepted_qty, rejected_qty, lost_qty, note, updated_by, sender_bom_id, receiver_bom_id, source_id, source_detail_id
+
+      if (spec_id) {
+        query = `UPDATE ims.t_source_item_warehouse_details SET accepted_quantity=$1, rejected_quantity=$2, lost_quantity=$3, note=$4, updated_by=$5, sender_bom_id=$6, receiver_bom_id=$7, updated_at=now()
+       WHERE source_id=$8 AND source_detail_id=$9 AND project_id=$10 AND spec_id=$11 RETURNING *`;
+        params.push(project_id, spec_id);
+      } else {
+        query = `UPDATE ims.t_source_item_warehouse_details SET accepted_quantity=$1, rejected_quantity=$2, lost_quantity=$3, note=$4, updated_by=$5, sender_bom_id=$6, receiver_bom_id=$7, updated_at=now()
+       WHERE source_id=$8 AND source_detail_id=$9 AND project_id=$10 AND spec_id IS NULL RETURNING *`;
+        params.push(project_id);
+      }
+    } else {
+      query = `UPDATE ims.t_source_item_warehouse_details SET accepted_quantity=$1, rejected_quantity=$2, lost_quantity=$3, note=$4, updated_by=$5, updated_at=now()
+       WHERE source_id=$6 AND source_detail_id=$7 AND warehouse_id=$8 RETURNING *`;
+      params.push(warehouse_id);
+    }
+
+    const result = await db.query(query, params);
     if (result.rows.length === 0)
       return res.status(404).json({ error: "Not found" });
     res.json(result.rows);
